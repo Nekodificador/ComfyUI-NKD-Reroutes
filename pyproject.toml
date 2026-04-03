@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-nkd-reroutes"
+version = "1.0.0"
+description = "Visual reroute style overhaul for ComfyUI — Blender-inspired spline curves with configurable tension, crossing behavior, and dot size."
+license = "MIT"
+requires-python = ">=3.10"
+
+[project.urls]
+Repository = "https://github.com/Nekodificador/ComfyUI-NKD-Reroutes"
+
+[tool.comfy]
+PublisherId = "nekodificador"
+DisplayName = "NKD Reroutes"
+Icon = ""

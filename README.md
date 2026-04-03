@@ -4,6 +4,13 @@ A ComfyUI extension that changes how reroute nodes are visually rendered, making
 
 Several configuration parameters are available in the **Settings** panel so each user can adapt the look to their preference. Presets with pre-configured parameters are also included for quick setup.
 
+### Result
+https://github.com/user-attachments/assets/a9bb4de0-be9e-44e1-ad20-349902a6c362
+
+### Inspiration
+https://github.com/user-attachments/assets/18210fcb-15b7-4476-8a25-f4862efe3186
+
+
 ---
 
 ## Installation

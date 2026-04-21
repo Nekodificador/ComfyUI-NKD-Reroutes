@@ -112,6 +112,33 @@ const PRESETS = {
     verticalEscapeScale:      0.15,
     nodeBodyClearance:        16,
   },
+  // Approximates the original LiteGraph formula: offset = dist * 0.25
+  // socketMin/Max/stretchRef calibrated so the smoothstep matches dist*0.25 within ~10%
+  // at typical node spacings (150–600 px). invertBackward=false keeps handles pointing
+  // outward (right from output, left from input) matching the original's sign convention.
+  // verticalEscapeScale=0 preserves fully horizontal tension on all wire angles.
+  "Classic Comfy": {
+    handleFactor:             1.0,
+    nodeOutFactor:            1.0,
+    nodeInFactor:             1.0,
+    rerouteOutFactor:         0.8,
+    rerouteInFactor:          0.8,
+    crossingBehaviorNodes:    "Natural Loop",
+    crossingBehaviorReroutes: "Natural Loop",
+    pushOutMin:               0,
+    pushOutMax:               50,
+    rerouteRadius:            5,
+    socketMin:                5,
+    socketMax:                150,
+    stretchRef:               600,
+    nonLinear:                1.0,
+    inversionPull:            75,
+    invertBackward:           false,
+    dampingRef:               100,
+    dampingMin:               0.1,
+    verticalEscapeScale:      0.0,
+    nodeBodyClearance:        24,
+  },
 }
 
 // ─── Setting ID ↔ State Key Map ─────────────────────────────────────────────
@@ -292,6 +319,9 @@ function isRerouteEndpoint(dir, extras, link, side) {
 function computeSegmentTension(a, b, startDir, endDir, extras, link) {
   const dx = b[0] - a[0]
   const dy = b[1] - a[1]
+  const wireDist = Math.sqrt(dx * dx + dy * dy)
+  // 0→1 ramp used to scale floors proportionally for short connections.
+  const distRamp = Math.min(1, wireDist / 80)
 
   // --- Determine horizontal sign for each handle ---
   let startSignX = 1
@@ -331,36 +361,50 @@ function computeSegmentTension(a, b, startDir, endDir, extras, link) {
   let applyDampingStart = true
   let applyDampingEnd   = true
 
-  // --- Angle-based clearance modulation ---
-  // For backward wires: horizontal (angle→0) needs full clearance, vertical (angle→90°) needs none.
-  // angleMult = 1 for forward wires (no effect) and for perfectly horizontal backward wires.
+  // --- Crossing blend factor ---
+  // Smoothly interpolates forward tension into backward tension over a ±30 px window
+  // around dx = 0, eliminating the hard jump at the forward/backward boundary.
+  const CROSSING_MARGIN = 30
+  let crossBlend = 0
+  if (dx < CROSSING_MARGIN) {
+    const t = Math.max(0, Math.min(1, (CROSSING_MARGIN - dx) / (2 * CROSSING_MARGIN)))
+    crossBlend = t * t * (3 - 2 * t)
+  }
+
+  // --- Angle-based modulation ---
+  // Fades inversionPull/clearance to zero as the wire approaches vertical.
+  // Runs across the full blend zone, not just the purely backward region.
   let angleMult = 1
-  if (dx < 0) {
+  if (dx < CROSSING_MARGIN) {
     const angle  = Math.atan2(Math.abs(dy), Math.abs(dx))              // 0 (horizontal) → π/2 (vertical)
     const tAngle = Math.max(0, (angle - Math.PI / 4) / (Math.PI / 4)) // 0°–45°→0, 90°→1
     angleMult = 1 - tAngle * tAngle * (3 - 2 * tAngle)               // smoothstep falloff
   }
 
   // --- Backward crossing: sign flip + organic belly ---
-  // Runs BEFORE Hard Push Out override so that the clearance wins unconditionally.
-  if (dx < 0) {
-    if (state.invertBackward) {
-      if (startCrossing !== "Hard Push Out") startSignX *= -1
-      if (endCrossing   !== "Hard Push Out") endSignX   *= -1
-    }
-    // Organic "C" loop — Hard Push Out endpoints will be overridden below.
-    // Magnitude is angle-only: no distance terms.
-    const invBase = state.inversionPull * angleMult
-    // Clearance floor interpolates between pushOutMin (90°) and pushOutMax (0°–45°).
-    // Applies to real nodes only.
-    const clearance = state.pushOutMin + (state.pushOutMax - state.pushOutMin) * angleMult
+  // Sign snaps at dx = 0 (acceptable); magnitude blends smoothly via crossBlend.
+  if (dx < 0 && state.invertBackward) {
+    if (startCrossing !== "Hard Push Out") startSignX *= -1
+    if (endCrossing   !== "Hard Push Out") endSignX   *= -1
+  }
+
+  if (crossBlend > 0) {
+    // dy contribution: fills the gap left by inversionPull*angleMult as the wire tilts
+    // toward vertical. Factor 0.25 matches the original ComfyUI dist*0.25 at full vertical.
+    const dyBoost   = Math.abs(dy) * 0.25 * (1 - angleMult)
+    const invBase   = state.inversionPull * angleMult + dyBoost
+    const clearance = state.pushOutMin + (state.pushOutMax - state.pushOutMin) * angleMult + dyBoost
     if (startCrossing !== "Hard Push Out") {
       const raw = invBase * outMultiplier
-      offsetStart = startIsReroute ? raw : Math.max(clearance, raw)
+      const backStart = startIsReroute ? raw : Math.max(clearance, raw)
+      offsetStart = offsetStart * (1 - crossBlend) + backStart * crossBlend
+      if (crossBlend >= 0.5) applyDampingStart = false
     }
     if (endCrossing !== "Hard Push Out") {
       const raw = invBase * inMultiplier
-      offsetEnd = endIsReroute ? raw : Math.max(clearance, raw)
+      const backEnd = endIsReroute ? raw : Math.max(clearance, raw)
+      offsetEnd = offsetEnd * (1 - crossBlend) + backEnd * crossBlend
+      if (crossBlend >= 0.5) applyDampingEnd = false
     }
   }
 
@@ -384,22 +428,19 @@ function computeSegmentTension(a, b, startDir, endDir, extras, link) {
   const t = Math.min(1, Math.abs(dx) / state.dampingRef)
   const smoothDamping = state.dampingMin + (1 - state.dampingMin) * (t * t * (3 - 2 * t))
 
-  if (applyDampingStart) { offsetStart *= smoothDamping; offsetStart = Math.max(state.socketMin, offsetStart) }
-  if (applyDampingEnd)   { offsetEnd   *= smoothDamping; offsetEnd   = Math.max(state.socketMin, offsetEnd)   }
+  if (applyDampingStart) { offsetStart *= smoothDamping; offsetStart = Math.max(state.socketMin * distRamp, offsetStart) }
+  if (applyDampingEnd)   { offsetEnd   *= smoothDamping; offsetEnd   = Math.max(state.socketMin * distRamp, offsetEnd)   }
 
   // --- Node body clearance: force minimum X offset when connection is near-vertical ---
-  // Prevents the wire from hiding inside the node border when dx is small.
+  // Scaled by distRamp so short connections don't get excessive curves.
   if (Math.abs(dx) < 80) {
-    const clr = state.nodeBodyClearance
+    const clr = state.nodeBodyClearance * distRamp
     offsetStart = Math.max(offsetStart, clr)
     offsetEnd   = Math.max(offsetEnd,   clr)
   }
 
-  // --- Vertical escape: Y component on handles when the wire is near-vertical ---
-  // vertRatio → 1 when the wire is mostly vertical; escapeY pulls the handle
-  // away from the node body so the curve exits cleanly before bending toward the target.
-  const dist      = Math.sqrt(dx * dx + dy * dy)
-  const vertRatio = dist > 0 ? Math.abs(dy) / dist : 0
+  // --- Vertical escape ---
+  const vertRatio = wireDist > 0 ? Math.abs(dy) / wireDist : 0
   const escapeY   = offsetStart * vertRatio * state.verticalEscapeScale
   const escapeSign = dy >= 0 ? 1 : -1
 

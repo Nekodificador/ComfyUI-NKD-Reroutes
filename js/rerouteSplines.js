@@ -34,8 +34,8 @@ const DEFAULTS = Object.freeze({
   nonLinear:                1.0,
   inversionPull:            40,
   invertBackward:           true,
-  dampingRef:               100,
-  dampingMin:               0.15,
+  tailGrowth:               0.08,
+  verticalTightness:        0.5,
   verticalEscapeScale:      0.4,
   nodeBodyClearance:        24,
 })
@@ -63,8 +63,8 @@ const PRESETS = {
     nonLinear:                1.2,
     inversionPull:            30,
     invertBackward:           true,
-    dampingRef:               80,
-    dampingMin:               0.0,
+    tailGrowth:               0.06,
+    verticalTightness:        1.0,
     verticalEscapeScale:      0.3,
     nodeBodyClearance:        20,
   },
@@ -85,8 +85,8 @@ const PRESETS = {
     nonLinear:                0.8,
     inversionPull:            60,
     invertBackward:           true,
-    dampingRef:               150,
-    dampingMin:               0.2,
+    tailGrowth:               0.15,
+    verticalTightness:        0.33,
     verticalEscapeScale:      0.5,
     nodeBodyClearance:        28,
   },
@@ -107,8 +107,8 @@ const PRESETS = {
     nonLinear:                1.5,
     inversionPull:            20,
     invertBackward:           false,
-    dampingRef:               50,
-    dampingMin:               0.0,
+    tailGrowth:               0.02,
+    verticalTightness:        1.0,
     verticalEscapeScale:      0.15,
     nodeBodyClearance:        16,
   },
@@ -134,8 +134,8 @@ const PRESETS = {
     nonLinear:                1.0,
     inversionPull:            75,
     invertBackward:           false,
-    dampingRef:               100,
-    dampingMin:               0.1,
+    tailGrowth:               0.08,
+    verticalTightness:        0.67,
     verticalEscapeScale:      0.0,
     nodeBodyClearance:        24,
   },
@@ -161,8 +161,8 @@ const SETTING_ID_MAP = {
   "NKD Reroutes.NonLinear":             "nonLinear",
   "NKD Reroutes.InversionPull":         "inversionPull",
   "NKD Reroutes.InvertBackward":        "invertBackward",
-  "NKD Reroutes.DampingRef":            "dampingRef",
-  "NKD Reroutes.DampingMin":            "dampingMin",
+  "NKD Reroutes.TailGrowth":            "tailGrowth",
+  "NKD Reroutes.VerticalTightness":     "verticalTightness",
   "NKD Reroutes.VerticalEscapeScale":   "verticalEscapeScale",
   "NKD Reroutes.NodeBodyClearance":     "nodeBodyClearance",
 }
@@ -177,6 +177,39 @@ app.registerExtension({
     registerSidebarPanel()
   },
 })
+
+// ─── Declarative Settings Descriptors ───────────────────────────────────────
+// Defined at module scope so buildPanel can reuse tips as sidebar tooltips.
+
+const SLIDER_DEFS = [
+  { id: "WireCurvature",            key: "handleFactor",         label: "Wire Curvature",          tip: "How much wires curve between two points. Higher = rounder arcs, lower = straighter lines.", min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "NodeOutgoingPull",         key: "nodeOutFactor",        label: "Node Outgoing Pull",       tip: "Extra curvature multiplier for wires leaving a node's output socket.",                       min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "NodeIncomingPull",         key: "nodeInFactor",         label: "Node Incoming Pull",       tip: "Extra curvature multiplier for wires arriving at a node's input socket.",                    min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "RerouteOutgoingPull",      key: "rerouteOutFactor",     label: "Reroute Outgoing Pull",    tip: "Extra curvature multiplier for wires leaving a reroute dot.",                                min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "RerouteIncomingPull",      key: "rerouteInFactor",      label: "Reroute Incoming Pull",    tip: "Extra curvature multiplier for wires arriving at a reroute dot.",                            min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "BackwardWireClearanceMin", key: "pushOutMin",           label: "Backward Clearance Min",   tip: "Minimum backward wire clearance (px) at 90° (near-vertical wires). Acts as the floor when angle modulation reduces the push.",                                                                  min: 0,   max: 150,  step: 5    },
+  { id: "BackwardWireClearanceMax", key: "pushOutMax",           label: "Backward Clearance Max",   tip: "Maximum backward wire clearance (px) at 0°–45° (horizontal wires). The clearance smoothly interpolates down to Min as the wire approaches vertical.",                                           min: 0,   max: 200,  step: 5    },
+  { id: "RerouteDotSize",           key: "rerouteRadius",        label: "Reroute Dot Size",         tip: "Visual radius of the reroute dot in pixels. Minimum 3 to stay clickable.",                   min: 3,   max: 15,   step: 1    },
+  { id: "SocketMin",                key: "socketMin",            label: "Socket Offset Min",        tip: "Minimum Bézier handle offset (px) at the socket when nodes are very close horizontally.",    min: 3,   max: 50,   step: 1    },
+  { id: "SocketMax",                key: "socketMax",            label: "Socket Offset Max",        tip: "Maximum Bézier handle offset (px) at the socket when nodes are far apart horizontally.",     min: 10,  max: 200,  step: 5    },
+  { id: "StretchRef",               key: "stretchRef",           label: "Stretch Reference",        tip: "Horizontal distance (px) at which the socket offset reaches its maximum. Larger = the curve grows more gradually as nodes spread apart.",                                                       min: 50,  max: 1000, step: 50   },
+  { id: "NonLinear",                key: "nonLinear",            label: "Curvature Non-Linearity",  tip: "Amplifies the difference between short and long wires. Above 1.0 = short wires get tighter while long ones stay open. Below 1.0 = more uniform curvature across all distances.",               min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "InversionPull",            key: "inversionPull",        label: "Inversion Pull",           tip: "Base handle offset (px) for backward wires (output to the right of input). Controls the width of the 'C' loop without depending on node distance.",                                             min: 10,  max: 150,  step: 5    },
+  { id: "TailGrowth",                key: "tailGrowth",           label: "Long-distance growth",     tip: "Rate at which the wire curvature keeps growing beyond the Stretch Reference distance. 0 = flat after stretchRef; higher values maintain visible curves on very long connections.",          min: 0,   max: 0.3,  step: 0.01 },
+  { id: "VerticalTightness",         key: "verticalTightness",    label: "Vertical Tightness",       tip: "How much the wire straightens when nearly vertical. 0 = keeps its full curve even when vertical; 1 = collapses to a straight line. Acts as a single control replacing the old Damping Range and Curvature Floor sliders.", min: 0, max: 1.0, step: 0.05 },
+  { id: "VerticalEscapeScale",      key: "verticalEscapeScale",  label: "Vertical Escape",          tip: "Adds a vertical component to Bézier handles when a wire is nearly vertical, pulling it clear of the node body. 0 = no escape, 1 = maximum escape.",                                            min: 0,   max: 1.0,  step: 0.05 },
+  { id: "NodeBodyClearance",        key: "nodeBodyClearance",    label: "Node Body Clearance",      tip: "Minimum horizontal handle offset (px) when nodes are very close horizontally (dx < 80px). Prevents wires from hiding inside the node border.",                                                  min: 0,   max: 80,   step: 2    },
+]
+
+const COMBO_DEFS = [
+  { id: "NodeBackwardsCrossing",    key: "crossingBehaviorNodes",    label: "Node Backward Crossing",   tip: "What happens when a wire goes left (backwards) from a node. 'Natural Loop' lets it arc freely; 'Hard Push Out' forces a fixed horizontal push to keep it readable." },
+  { id: "RerouteBackwardsCrossing", key: "crossingBehaviorReroutes", label: "Reroute Backward Crossing", tip: "Same as above, but for wires going backwards from a reroute dot." },
+]
+
+// Quick lookup: stateKey → tip (for sidebar tooltips)
+const TIPS = Object.fromEntries(
+  [...SLIDER_DEFS, ...COMBO_DEFS].map(d => [d.key, d.tip])
+)
 
 // ─── Declarative Settings ────────────────────────────────────────────────────
 
@@ -212,28 +245,7 @@ function registerSettings() {
     onChange(v) { applyPreset(v) },
   })
 
-  // --- Sliders (declarative array) ---
-  const sliders = [
-    { id: "WireCurvature",       key: "handleFactor",    label: "Wire Curvature",          tip: "How much wires curve between two points. Higher = rounder arcs, lower = straighter lines.", min: 0.1, max: 2.0, step: 0.1 },
-    { id: "NodeOutgoingPull",    key: "nodeOutFactor",   label: "Node Outgoing Pull",      tip: "Extra curvature multiplier for wires leaving a node's output socket.",                       min: 0.1, max: 2.0, step: 0.1 },
-    { id: "NodeIncomingPull",    key: "nodeInFactor",    label: "Node Incoming Pull",       tip: "Extra curvature multiplier for wires arriving at a node's input socket.",                    min: 0.1, max: 2.0, step: 0.1 },
-    { id: "RerouteOutgoingPull", key: "rerouteOutFactor",label: "Reroute Outgoing Pull",    tip: "Extra curvature multiplier for wires leaving a reroute dot.",                                min: 0.1, max: 2.0, step: 0.1 },
-    { id: "RerouteIncomingPull", key: "rerouteInFactor", label: "Reroute Incoming Pull",    tip: "Extra curvature multiplier for wires arriving at a reroute dot.",                            min: 0.1, max: 2.0, step: 0.1 },
-    { id: "BackwardWireClearanceMin", key: "pushOutMin", label: "Backward Clearance Min", tip: "Minimum backward wire clearance (px) at 90° (near-vertical wires). Acts as the floor when angle modulation reduces the push.",  min: 0, max: 150, step: 5 },
-    { id: "BackwardWireClearanceMax", key: "pushOutMax", label: "Backward Clearance Max", tip: "Maximum backward wire clearance (px) at 0°–45° (horizontal wires). The clearance smoothly interpolates down to Min as the wire approaches vertical.", min: 0, max: 200, step: 5 },
-    { id: "RerouteDotSize",      key: "rerouteRadius",  label: "Reroute Dot Size",         tip: "Visual radius of the reroute dot in pixels. Minimum 3 to stay clickable.",                   min: 3, max: 15, step: 1 },
-    { id: "SocketMin",           key: "socketMin",      label: "Socket Offset Min",        tip: "Minimum Bézier handle offset (px) at the socket when nodes are very close horizontally.",    min: 3, max: 50, step: 1 },
-    { id: "SocketMax",           key: "socketMax",      label: "Socket Offset Max",        tip: "Maximum Bézier handle offset (px) at the socket when nodes are far apart horizontally.",     min: 10, max: 200, step: 5 },
-    { id: "StretchRef",          key: "stretchRef",     label: "Stretch Reference",        tip: "Horizontal distance (px) at which the socket offset reaches its maximum. Larger = the curve grows more gradually as nodes spread apart.", min: 50, max: 1000, step: 50 },
-    { id: "NonLinear",           key: "nonLinear",      label: "Curvature Non-Linearity",  tip: "Amplifies the difference between short and long wires. Above 1.0 = short wires get tighter while long ones stay open. Below 1.0 = more uniform curvature across all distances.", min: 0.1, max: 2.0, step: 0.1 },
-    { id: "InversionPull",       key: "inversionPull",  label: "Inversion Pull",           tip: "Base handle offset (px) for backward wires (output to the right of input). Controls the width of the 'C' loop without depending on node distance.", min: 10, max: 150, step: 5 },
-    { id: "DampingRef",          key: "dampingRef",          label: "Damping Range",          tip: "Horizontal distance (px) at which full curvature is restored after verticality damping. Smaller = curvature kicks back in closer to the socket; larger = gradual transition.",                          min: 20, max: 400,  step: 10   },
-    { id: "DampingMin",          key: "dampingMin",          label: "Curvature Floor",        tip: "Minimum damping multiplier when the wire is nearly vertical. 0 = curvature fully collapses to straight; 1 = no damping at all. Set above 0 to keep a visible curve even when nodes are stacked.",     min: 0,  max: 1.0,  step: 0.1  },
-    { id: "VerticalEscapeScale", key: "verticalEscapeScale", label: "Vertical Escape",        tip: "Adds a vertical component to Bézier handles when a wire is nearly vertical, pulling it clear of the node body. 0 = no escape, 1 = maximum escape.",                                                  min: 0,  max: 1.0,  step: 0.05 },
-    { id: "NodeBodyClearance",   key: "nodeBodyClearance",   label: "Node Body Clearance",    tip: "Minimum horizontal handle offset (px) when nodes are very close horizontally (dx < 80px). Prevents wires from hiding inside the node border.",                                                         min: 0,  max: 80,   step: 2    },
-  ]
-
-  for (const s of sliders) {
+  for (const s of SLIDER_DEFS) {
     add({
       id:           `NKD Reroutes.${s.id}`,
       name:         s.label,
@@ -245,13 +257,7 @@ function registerSettings() {
     })
   }
 
-  // --- Combo selectors ---
-  const combos = [
-    { id: "NodeBackwardsCrossing",    key: "crossingBehaviorNodes",    label: "Node Backward Crossing",    tip: "What happens when a wire goes left (backwards) from a node. 'Natural Loop' lets it arc freely; 'Hard Push Out' forces a fixed horizontal push to keep it readable." },
-    { id: "RerouteBackwardsCrossing", key: "crossingBehaviorReroutes", label: "Reroute Backward Crossing",  tip: "Same as above, but for wires going backwards from a reroute dot." },
-  ]
-
-  for (const c of combos) {
+  for (const c of COMBO_DEFS) {
     add({
       id:           `NKD Reroutes.${c.id}`,
       name:         c.label,
@@ -288,7 +294,7 @@ function applyPreset(name) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function redraw() {
-  app.graph?.setDirtyCanvas(true, true)
+  app.graph?.setDirtyCanvas(true, false)
 }
 
 // ─── Reroute Detection ───────────────────────────────────────────────────────
@@ -320,8 +326,10 @@ function computeSegmentTension(a, b, startDir, endDir, extras, link) {
   const dx = b[0] - a[0]
   const dy = b[1] - a[1]
   const wireDist = Math.sqrt(dx * dx + dy * dy)
-  // 0→1 ramp used to scale floors proportionally for short connections.
-  const distRamp = Math.min(1, wireDist / 80)
+  // 0→1 smoothstep ramp for scaling floors on short connections.
+  // Smoothstep instead of linear gives zero-derivative endpoints — no kink at wireDist=80.
+  const tDist    = Math.min(1, wireDist / 80)
+  const distRamp = tDist * tDist * (3 - 2 * tDist)
 
   // --- Determine horizontal sign for each handle ---
   let startSignX = 1
@@ -337,15 +345,23 @@ function computeSegmentTension(a, b, startDir, endDir, extras, link) {
   const startIsReroute = isRerouteEndpoint(startDir, extras, link, "start")
   const endIsReroute   = isRerouteEndpoint(endDir,   extras, link, "end")
 
-  // --- Dynamic socket offset (smoothstep over horizontal stretch) ---
-  const tSock   = Math.min(1, Math.abs(dx) / state.stretchRef)
+  // --- Dynamic socket offset (smoothstep + linear tail) ---
+  // Smoothstep grows from socketMin to socketMax over [0, stretchRef].
+  // Beyond stretchRef a residual linear term keeps the curve visible at long distances.
+  // tailGrowth controls the rate — at 0.08 a 1200px wire gets ~72px extra handle.
+  const absDx   = Math.abs(dx)
+  const tSock   = Math.min(1, absDx / state.stretchRef)
   const smoothT = tSock * tSock * (3 - 2 * tSock)
-  let baseTension = state.socketMin + (state.socketMax - state.socketMin) * smoothT
+  const tail    = absDx > state.stretchRef ? (absDx - state.stretchRef) * state.tailGrowth : 0
+  let baseTension = state.socketMin + (state.socketMax - state.socketMin) * smoothT + tail
 
   // --- Non-linear elasticity ---
   // ratio < 1 for small tensions, > 1 for large; nonLinear amplifies the contrast.
   const ratio = Math.pow(baseTension / 250, 0.9)
   baseTension = baseTension * Math.pow(ratio, state.nonLinear - 1)
+
+  // --- Global curvature scale ---
+  baseTension *= state.handleFactor
 
   // --- Per-endpoint multipliers ---
   const outMultiplier = startIsReroute ? state.rerouteOutFactor : state.nodeOutFactor
@@ -358,8 +374,10 @@ function computeSegmentTension(a, b, startDir, endDir, extras, link) {
   const startCrossing = startIsReroute ? state.crossingBehaviorReroutes : state.crossingBehaviorNodes
   const endCrossing   = endIsReroute   ? state.crossingBehaviorReroutes : state.crossingBehaviorNodes
 
-  let applyDampingStart = true
-  let applyDampingEnd   = true
+  // dampingWeight: 1 = full damping (forward), 0 = no damping (fully backward).
+  // Driven by crossBlend so damping fades out gradually rather than switching off at 0.5.
+  let dampingWeightStart = 1
+  let dampingWeightEnd   = 1
 
   // --- Crossing blend factor ---
   // Smoothly interpolates forward tension into backward tension over a ±30 px window
@@ -398,24 +416,24 @@ function computeSegmentTension(a, b, startDir, endDir, extras, link) {
       const raw = invBase * outMultiplier
       const backStart = startIsReroute ? raw : Math.max(clearance, raw)
       offsetStart = offsetStart * (1 - crossBlend) + backStart * crossBlend
-      if (crossBlend >= 0.5) applyDampingStart = false
+      dampingWeightStart = 1 - crossBlend
     }
     if (endCrossing !== "Hard Push Out") {
       const raw = invBase * inMultiplier
       const backEnd = endIsReroute ? raw : Math.max(clearance, raw)
       offsetEnd = offsetEnd * (1 - crossBlend) + backEnd * crossBlend
-      if (crossBlend >= 0.5) applyDampingEnd = false
+      dampingWeightEnd = 1 - crossBlend
     }
   }
 
   // --- Hard Push Out: strict override — interpolated between pushOutMin and pushOutMax ---
   if (startCrossing === "Hard Push Out") {
     offsetStart = state.pushOutMin + (state.pushOutMax - state.pushOutMin) * angleMult
-    applyDampingStart = false
+    dampingWeightStart = 0
   }
   if (endCrossing === "Hard Push Out") {
     offsetEnd = state.pushOutMin + (state.pushOutMax - state.pushOutMin) * angleMult
-    applyDampingEnd = false
+    dampingWeightEnd = 0
   }
 
   // --- Clamp offsets ---
@@ -423,18 +441,27 @@ function computeSegmentTension(a, b, startDir, endDir, extras, link) {
   offsetEnd   = Math.min(state.maxSplineOffset, Math.max(state.minSplineOffset, offsetEnd))
 
   // --- Verticality damping (smoothstep) ---
-  // dampingRef: horizontal distance at which the wire regains full curvature.
-  // dampingMin: floor that prevents socketMin from being wiped out when dx → 0.
-  const t = Math.min(1, Math.abs(dx) / state.dampingRef)
-  const smoothDamping = state.dampingMin + (1 - state.dampingMin) * (t * t * (3 - 2 * t))
+  // verticalTightness (0→1) drives both axes of the old dampingRef/dampingMin pair:
+  //   dampingRef  = 200 - 150 * t  →  200px (loose) at 0,  50px (tight) at 1
+  //   dampingMin  = 0.3 * (1 - t)  →  0.3 (keeps curve) at 0,  0 (fully flat) at 1
+  const vt = state.verticalTightness
+  const derivedDampingRef = 200 - 150 * vt
+  const derivedDampingMin = 0.3 * (1 - vt)
+  const t = Math.min(1, absDx / derivedDampingRef)
+  const smoothDamping = derivedDampingMin + (1 - derivedDampingMin) * (t * t * (3 - 2 * t))
 
-  if (applyDampingStart) { offsetStart *= smoothDamping; offsetStart = Math.max(state.socketMin * distRamp, offsetStart) }
-  if (applyDampingEnd)   { offsetEnd   *= smoothDamping; offsetEnd   = Math.max(state.socketMin * distRamp, offsetEnd)   }
+  if (dampingWeightStart > 0) { offsetStart *= 1 - dampingWeightStart * (1 - smoothDamping); offsetStart = Math.max(state.socketMin * distRamp, offsetStart) }
+  if (dampingWeightEnd   > 0) { offsetEnd   *= 1 - dampingWeightEnd   * (1 - smoothDamping); offsetEnd   = Math.max(state.socketMin * distRamp, offsetEnd)   }
 
-  // --- Node body clearance: force minimum X offset when connection is near-vertical ---
-  // Scaled by distRamp so short connections don't get excessive curves.
-  if (Math.abs(dx) < 80) {
-    const clr = state.nodeBodyClearance * distRamp
+  // --- Node body clearance: minimum X offset when connection is near-vertical ---
+  // Fades out smoothly from full strength at dx=0 to zero at dx=160,
+  // avoiding the hard jump that the old if(dx<80) threshold produced.
+  const CLR_FADE_START = 80
+  const CLR_FADE_END   = 160
+  if (absDx < CLR_FADE_END) {
+    const tClr    = Math.max(0, Math.min(1, (absDx - CLR_FADE_START) / (CLR_FADE_END - CLR_FADE_START)))
+    const clrMult = 1 - tClr * tClr * (3 - 2 * tClr)
+    const clr     = state.nodeBodyClearance * distRamp * clrMult
     offsetStart = Math.max(offsetStart, clr)
     offsetEnd   = Math.max(offsetEnd,   clr)
   }
@@ -468,32 +495,6 @@ function patchDrawLink() {
   ) {
     if (!start || !end) return orig.apply(this, arguments)
 
-    const dx     = end[0] - start[0]
-    const tSock  = Math.min(1, Math.abs(dx) / state.stretchRef)
-    const smoothT = tSock * tSock * (3 - 2 * tSock)
-    const currentOffset = state.socketMin + (state.socketMax - state.socketMin) * smoothT
-
-    let offsetStart = Math.min(state.maxSplineOffset, Math.max(state.minSplineOffset, currentOffset))
-    let offsetEnd   = offsetStart
-
-    if (dx < 0) {
-      const angle     = Math.atan2(Math.abs(end[1] - start[1]), Math.abs(dx))
-      const tAngle    = Math.max(0, (angle - Math.PI / 4) / (Math.PI / 4))
-      const angleMult = 1 - tAngle * tAngle * (3 - 2 * tAngle)
-      const effectiveClearance = state.pushOutMin + (state.pushOutMax - state.pushOutMin) * angleMult
-
-      if (state.crossingBehaviorNodes === "Hard Push Out") {
-        offsetStart = effectiveClearance
-        offsetEnd   = effectiveClearance
-      } else {
-        // Floor applies to real nodes only.
-        const startIsNode = !start_node?.type?.includes("Reroute")
-        const endIsNode   = !end_node?.type?.includes("Reroute")
-        if (startIsNode) offsetStart = Math.max(offsetStart, effectiveClearance)
-        if (endIsNode)   offsetEnd   = Math.max(offsetEnd,   effectiveClearance)
-      }
-    }
-
     ctx.save()
     ctx.lineWidth   = is_selected ? 4 : 3
     ctx.strokeStyle = link_color || "#999"
@@ -523,12 +524,15 @@ function patchDrawLink() {
       ctx.lineTo(end[0] - 10, end[1])
       ctx.lineTo(end[0], end[1])
     } else {
-      // SPLINE
+      // SPLINE — use the canonical tension function so both render paths are identical
+      const startDir = start_node?.type?.includes("Reroute") ? 0 : undefined
+      const endDir   = end_node?.type?.includes("Reroute")   ? 0 : undefined
+      const tension  = computeSegmentTension(start, end, startDir, endDir, {}, link_data)
       ctx.moveTo(start[0], start[1])
       ctx.bezierCurveTo(
-        start[0] + offsetStart, start[1],
-        end[0]   - offsetEnd,   end[1],
-        end[0],                 end[1]
+        start[0] + tension.startControl[0], start[1] + tension.startControl[1],
+        end[0]   + tension.endControl[0],   end[1]   + tension.endControl[1],
+        end[0],                             end[1]
       )
     }
 
@@ -567,7 +571,7 @@ function patchDrawConnections() {
 
   LGraphCanvas.prototype.drawConnections = function (ctx) {
     if (app.graph?.reroutes?.size > 0) {
-      const firstReroute = [...app.graph.reroutes.values()][0]
+      const firstReroute = app.graph.reroutes.values().next().value
       const proto = Object.getPrototypeOf(firstReroute)
 
       if (!_patchedReroutes.has(proto)) {
@@ -681,6 +685,7 @@ function buildPanel(el) {
     s.id = "nkd-panel-styles"
     s.textContent = `
 .nkd-panel {
+  --nkd-accent: #7db98a;
   padding: 10px 8px 16px;
   overflow-y: auto;
   height: 100%;
@@ -714,7 +719,7 @@ function buildPanel(el) {
   transition: border-color 0.15s;
 }
 .nkd-panel-preset-btn:hover { border-color: var(--input-text, #888); }
-.nkd-panel-preset-btn.nkd-active { border-color: #7db98a; color: #7db98a; }
+.nkd-panel-preset-btn.nkd-active { border-color: var(--nkd-accent); color: var(--nkd-accent); }
 .nkd-panel-row {
   display: flex;
   align-items: center;
@@ -730,7 +735,7 @@ function buildPanel(el) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.nkd-panel-slider { flex: 1; min-width: 0; accent-color: #7db98a; cursor: pointer; }
+.nkd-panel-slider { flex: 1; min-width: 0; accent-color: var(--nkd-accent); cursor: pointer; }
 .nkd-panel-value {
   flex: 0 0 34px;
   text-align: right;
@@ -774,7 +779,7 @@ function buildPanel(el) {
   border-radius: 50%;
   transition: transform 0.2s;
 }
-.nkd-panel-toggle-label input:checked + .nkd-panel-toggle-track { background: #7db98a; }
+.nkd-panel-toggle-label input:checked + .nkd-panel-toggle-track { background: var(--nkd-accent); }
 .nkd-panel-toggle-label input:checked + .nkd-panel-toggle-track::after { transform: translateX(16px); }
 .nkd-panel-disabled { opacity: 0.4 !important; pointer-events: none !important; }
 .nkd-panel-reset {
@@ -801,15 +806,31 @@ function buildPanel(el) {
     return id ? (app.ui?.settings?.getSettingValue?.(id) ?? DEFAULTS[key]) : DEFAULTS[key]
   }
 
+  const _persistTimers = new Map()
+
   function setSetting(key, value) {
     state[key] = value
-    const id = _stateKeyToSettingId[key]
-    if (id) app.ui?.settings?.setSettingValue?.(id, value)
     redraw()
+    // Debounce persistence — avoids hammering localStorage on every pointermove pixel
+    const id = _stateKeyToSettingId[key]
+    if (id) {
+      clearTimeout(_persistTimers.get(key))
+      _persistTimers.set(key, setTimeout(() => {
+        app.ui?.settings?.setSettingValue?.(id, value)
+        _persistTimers.delete(key)
+      }, 200))
+    }
   }
 
   const presetBtns = []
   function clearPreset() { presetBtns.forEach(b => b.classList.remove("nkd-active")) }
+
+  function detectActivePreset() {
+    for (const [name, preset] of Object.entries(PRESETS)) {
+      if (Object.keys(preset).every(k => state[k] === preset[k])) return name
+    }
+    return null
+  }
 
   function makeSection(title) {
     const sec = document.createElement("div")
@@ -827,6 +848,7 @@ function buildPanel(el) {
     const lbl = document.createElement("span")
     lbl.className = "nkd-panel-label"
     lbl.textContent = label
+    if (TIPS[key]) { lbl.title = TIPS[key]; row.title = TIPS[key] }
     const inp = document.createElement("input")
     inp.type = "range"
     inp.className = "nkd-panel-slider"
@@ -875,6 +897,7 @@ function buildPanel(el) {
     const lbl = document.createElement("span")
     lbl.className = "nkd-panel-label"
     lbl.textContent = label
+    if (TIPS[key]) { lbl.title = TIPS[key]; row.title = TIPS[key] }
     const sel = document.createElement("select")
     sel.className = "nkd-panel-select"
     for (const opt of options) {
@@ -913,15 +936,22 @@ function buildPanel(el) {
   secPreset.appendChild(presetGroup)
   wrap.appendChild(secPreset)
 
+  // Mark the active preset on load if state matches one exactly
+  const activeOnLoad = detectActivePreset()
+  if (activeOnLoad) {
+    const idx = Object.keys(PRESETS).indexOf(activeOnLoad)
+    if (idx >= 0) presetBtns[idx]?.classList.add("nkd-active")
+  }
+
   // — WIRE SHAPE —
   const secShape = makeSection("Wire Shape")
   secShape.append(
-    makeSlider("handleFactor", "Wire curvature",  0.1, 2.0, 0.1),
-    makeSlider("socketMin",    "Socket min",      3,   50,  1  ),
-    makeSlider("socketMax",    "Socket max",      10,  200, 5  ),
-    makeSlider("nonLinear",    "Elasticity",      0.1, 2.0, 0.1),
-    makeSlider("dampingRef",   "Damping range",   20,  400, 10 ),
-    makeSlider("dampingMin",          "Curvature floor",     0,   1.0, 0.1 ),
+    makeSlider("handleFactor",      "Wire curvature",       0.1, 2.0,  0.1 ),
+    makeSlider("socketMin",         "Socket min",           3,   50,   1   ),
+    makeSlider("socketMax",         "Socket max",           10,  200,  5   ),
+    makeSlider("nonLinear",         "Elasticity",           0.1, 2.0,  0.1 ),
+    makeSlider("tailGrowth",        "Long-distance growth", 0,   0.3,  0.01),
+    makeSlider("verticalTightness", "Vertical tightness",   0,   1.0,  0.05),
     makeSlider("verticalEscapeScale", "Vertical escape",     0,   1.0, 0.05),
     makeSlider("nodeBodyClearance",   "Node body clearance", 0,   80,  2   ),
   )
@@ -946,6 +976,7 @@ function buildPanel(el) {
   const tLbl = document.createElement("span")
   tLbl.className = "nkd-panel-label"
   tLbl.textContent = "Invert on backward"
+  tRow.title = "When enabled, backward wires (output to the right of input) flip their handle direction to form a natural C-loop instead of crossing."
   const tLabel = document.createElement("label")
   tLabel.className = "nkd-panel-toggle-label"
   const tCb = document.createElement("input")

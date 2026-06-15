@@ -16,6 +16,8 @@ import { app } from "../../scripts/app.js"
 // ─── Defaults & State ────────────────────────────────────────────────────────
 
 const DEFAULTS = Object.freeze({
+  mode:                     "Simple",
+  simpleRerouteOffset:      40,
   minSplineOffset:          25,
   maxSplineOffset:          9999,
   handleFactor:             0.5,
@@ -145,6 +147,8 @@ const PRESETS = {
 // Used by the preset loader to sync UI settings after applying a preset.
 
 const SETTING_ID_MAP = {
+  "NKD Reroutes.Mode":                   "mode",
+  "NKD Reroutes.SimpleRerouteOffset":    "simpleRerouteOffset",
   "NKD Reroutes.WireCurvature":          "handleFactor",
   "NKD Reroutes.NodeOutgoingPull":       "nodeOutFactor",
   "NKD Reroutes.NodeIncomingPull":       "nodeInFactor",
@@ -232,6 +236,24 @@ function registerSettings() {
     type:         "hidden",
     defaultValue: true,
     onChange(v) { state.invertBackward = Boolean(v) },
+  })
+
+  // --- Hidden: mode (Simple|Advanced), persisted via sidebar toggle ---
+  add({
+    id:           "NKD Reroutes.Mode",
+    name:         "Mode (managed by sidebar)",
+    type:         "hidden",
+    defaultValue: "Simple",
+    onChange(v)  { state.mode = v === "Advanced" ? "Advanced" : "Simple"; redraw() },
+  })
+
+  // --- Hidden: simple-mode reroute handle offset ---
+  add({
+    id:           "NKD Reroutes.SimpleRerouteOffset",
+    name:         "Simple-mode reroute handle offset (managed by sidebar)",
+    type:         "hidden",
+    defaultValue: 40,
+    onChange(v)  { state.simpleRerouteOffset = Number(v); redraw() },
   })
 
   // --- Preset selector ---
@@ -495,6 +517,14 @@ function patchDrawLink() {
   ) {
     if (!start || !end) return orig.apply(this, arguments)
 
+    // Simple mode: only take over rendering when a reroute is involved.
+    // Pure node↔node wires fall through to LiteGraph's native renderer.
+    if (state.mode === "Simple") {
+      const startIsReroute = start_node?.type?.includes("Reroute")
+      const endIsReroute   = end_node?.type?.includes("Reroute")
+      if (!startIsReroute && !endIsReroute) return orig.apply(this, arguments)
+    }
+
     ctx.save()
     ctx.lineWidth   = is_selected ? 4 : 3
     ctx.strokeStyle = link_color || "#999"
@@ -524,15 +554,32 @@ function patchDrawLink() {
       ctx.lineTo(end[0] - 10, end[1])
       ctx.lineTo(end[0], end[1])
     } else {
-      // SPLINE — use the canonical tension function so both render paths are identical
-      const startDir = start_node?.type?.includes("Reroute") ? 0 : undefined
-      const endDir   = end_node?.type?.includes("Reroute")   ? 0 : undefined
-      const tension  = computeSegmentTension(start, end, startDir, endDir, {}, link_data)
+      // SPLINE
+      const startIsReroute = start_node?.type?.includes("Reroute")
+      const endIsReroute   = end_node?.type?.includes("Reroute")
+      let sCtl, eCtl
+      if (state.mode === "Simple") {
+        // We only get here if at least one endpoint is a reroute (gate above).
+        // Fixed-direction handles (start → right, end → left) — same convention
+        // as a real socket, so backward wires loop instead of inverting.
+        const off = state.simpleRerouteOffset
+        sCtl = [ off, 0]
+        eCtl = [-off, 0]
+      } else {
+        const tension = computeSegmentTension(
+          start, end,
+          startIsReroute ? 0 : undefined,
+          endIsReroute   ? 0 : undefined,
+          {}, link_data
+        )
+        sCtl = tension.startControl
+        eCtl = tension.endControl
+      }
       ctx.moveTo(start[0], start[1])
       ctx.bezierCurveTo(
-        start[0] + tension.startControl[0], start[1] + tension.startControl[1],
-        end[0]   + tension.endControl[0],   end[1]   + tension.endControl[1],
-        end[0],                             end[1]
+        start[0] + sCtl[0], start[1] + sCtl[1],
+        end[0]   + eCtl[0], end[1]   + eCtl[1],
+        end[0],             end[1]
       )
     }
 
@@ -553,9 +600,23 @@ function patchRenderLink() {
     if (!extras) extras = {}
 
     if (this.links_render_mode === 2) {
-      const tension = computeSegmentTension(a, b, start_dir, end_dir, extras, link)
-      extras.startControl = tension.startControl
-      extras.endControl   = tension.endControl
+      if (state.mode === "Simple") {
+        // Only override handles at reroute endpoints; let Vanilla handle node endpoints.
+        const startIsReroute = isRerouteEndpoint(start_dir, extras, link, "start")
+        const endIsReroute   = isRerouteEndpoint(end_dir,   extras, link, "end")
+        if (startIsReroute || endIsReroute) {
+          const off = state.simpleRerouteOffset
+          // Reroute handles are fixed-direction (start → right, end → left), like
+          // real sockets. Sign never depends on dx, so backward wires form a clean
+          // C-loop instead of inverting at the dot.
+          if (startIsReroute) extras.startControl = [ off, 0]
+          if (endIsReroute)   extras.endControl   = [-off, 0]
+        }
+      } else {
+        const tension = computeSegmentTension(a, b, start_dir, end_dir, extras, link)
+        extras.startControl = tension.startControl
+        extras.endControl   = tension.endControl
+      }
     }
 
     return orig.call(this, ctx, a, b, link, skip_border, flow, color, start_dir, end_dir, extras)
@@ -917,6 +978,67 @@ function buildPanel(el) {
   const wrap = document.createElement("div")
   wrap.className = "nkd-panel"
 
+  // — MODE —
+  const secMode = makeSection("Mode")
+  const modeRow = document.createElement("div")
+  modeRow.className = "nkd-panel-row"
+  const modeLbl = document.createElement("span")
+  modeLbl.className = "nkd-panel-label"
+  modeLbl.textContent = "Advanced mode"
+  modeRow.title = "Simple: only forces horizontal handles at reroute dots; node↔node wires render with Comfy's native style. Advanced: full control over the NKD tension engine."
+  const modeLabel = document.createElement("label")
+  modeLabel.className = "nkd-panel-toggle-label"
+  const modeCb = document.createElement("input")
+  modeCb.type = "checkbox"
+  modeCb.checked = state.mode === "Advanced"
+  const modeTrack = document.createElement("span")
+  modeTrack.className = "nkd-panel-toggle-track"
+  modeLabel.append(modeCb, modeTrack)
+  modeRow.append(modeLbl, modeLabel)
+  secMode.appendChild(modeRow)
+  modeCb.addEventListener("change", () => {
+    const next = modeCb.checked ? "Advanced" : "Simple"
+    state.mode = next
+    app.ui?.settings?.setSettingValue?.("NKD Reroutes.Mode", next)
+    redraw()
+    buildPanel(el)  // rebuild to show/hide advanced sections
+  })
+  wrap.appendChild(secMode)
+
+  // — REROUTE DOT (always visible in both modes) —
+  const secDotTop = makeSection("Reroute Dot")
+  secDotTop.appendChild(makeSlider("rerouteRadius", "Dot size", 3, 15, 1))
+  if (state.mode === "Simple") {
+    secDotTop.appendChild(makeSlider("simpleRerouteOffset", "Handle offset", 10, 120, 5))
+  }
+  wrap.appendChild(secDotTop)
+
+  // Shared reset — built once, appended at the end so it sits below all sections.
+  const resetBtn = document.createElement("button")
+  resetBtn.className = "nkd-panel-reset"
+  resetBtn.textContent = "Reset to defaults"
+  resetBtn.addEventListener("click", () => {
+    // Preserve current mode — resetting shouldn't yank the user out of Advanced.
+    const keepMode = state.mode
+    Object.assign(state, DEFAULTS, { mode: keepMode })
+    if (app.ui?.settings?.setSettingValue) {
+      for (const [settingId, key] of Object.entries(SETTING_ID_MAP)) {
+        if (key === "mode") continue
+        if (key in DEFAULTS) app.ui.settings.setSettingValue(settingId, DEFAULTS[key])
+      }
+    }
+    syncPanelFromState()
+    if (typeof clearPreset === "function") clearPreset()
+    redraw()
+  })
+
+  // Advanced-only sections — early return for Simple keeps the panel minimal
+  if (state.mode === "Simple") {
+    wrap.appendChild(resetBtn)
+    el.appendChild(wrap)
+    return
+  }
+
   // — PRESET —
   const secPreset = makeSection("Preset")
   const presetGroup = document.createElement("div")
@@ -1013,26 +1135,6 @@ function buildPanel(el) {
   )
   wrap.appendChild(secBack)
 
-  // — REROUTE DOT —
-  const secDot = makeSection("Reroute Dot")
-  secDot.appendChild(makeSlider("rerouteRadius", "Dot size", 3, 15, 1))
-  wrap.appendChild(secDot)
-
-  // — RESET —
-  const resetBtn = document.createElement("button")
-  resetBtn.className = "nkd-panel-reset"
-  resetBtn.textContent = "Reset to defaults"
-  resetBtn.addEventListener("click", () => {
-    Object.assign(state, DEFAULTS)
-    if (app.ui?.settings?.setSettingValue) {
-      for (const [settingId, key] of Object.entries(SETTING_ID_MAP)) {
-        if (key in DEFAULTS) app.ui.settings.setSettingValue(settingId, DEFAULTS[key])
-      }
-    }
-    syncPanelFromState()
-    clearPreset()
-    redraw()
-  })
   wrap.appendChild(resetBtn)
 
   el.appendChild(wrap)
@@ -1043,6 +1145,11 @@ function buildPanel(el) {
     const key = SETTING_ID_MAP[detail.key]
     const newVal = detail.value ?? detail.newValue
     if (newVal == null) return
+    // Mode flips reshape the entire panel — rebuild instead of patching one ref.
+    if (key === "mode") {
+      if (state.mode !== newVal) { state.mode = newVal; buildPanel(el); redraw() }
+      return
+    }
     const ref = _panelRefs.get(key)
     if (!ref) return
     if (ref.type === "slider") {

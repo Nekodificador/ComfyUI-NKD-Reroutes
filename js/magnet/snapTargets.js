@@ -85,48 +85,65 @@ function edgeTargets(nRect, neighbourIsCollapsed, opts, out) {
   out.y.push(mk({ ref: "max", value: nRect.y - gapY }))
 }
 
-// Enlaces que conectan un nodo arrastrado con un vecino, en ambos sentidos.
-// Devuelve pares [yPropio, yVecino] en coordenadas de grafo.
-function socketPairs(graph, draggedNode, neighbour) {
-  const pairs = []
+// Vecino real de un socket dentro del cable.
+//
+// Un enlace va: socket de origen -> [cadena de reroutes] -> socket destino. Si
+// hay reroutes por medio, el vecino de un socket NO es el socket del otro nodo
+// sino el reroute contiguo — que es adonde apunta el cable de verdad. Alinearse
+// con el nodo lejano no endereza nada.
+//
+// `link.parentId` apunta al ULTIMO reroute del enlace, y getReroutes() devuelve
+// la cadena ordenada desde la raiz, así que chain[0] es el primero (junto al
+// origen) y chain.at(-1) el último (junto al destino).
+function wireNeighbour(graph, link, side, draggedItems) {
+  const chain = graph.reroutes?.get?.(link.parentId)?.getReroutes?.() ?? []
+  const reroute = side === "input" ? chain.at(-1) : chain[0]
+
+  if (reroute) {
+    return draggedItems.has(reroute) ? null : [reroute.pos[0], reroute.pos[1]]
+  }
+  const node = side === "input"
+    ? graph.getNodeById?.(link.origin_id)
+    : graph.getNodeById?.(link.target_id)
+  if (!node || draggedItems.has(node)) return null
+  return side === "input"
+    ? node.getConnectionPos(false, link.origin_slot, [0, 0])
+    : node.getConnectionPos(true, link.target_slot, [0, 0])
+}
+
+// Regla 3: cuadrar cada socket del nodo arrastrado con su vecino en el cable,
+// sea otro nodo o un reroute, para que ese tramo salga recto.
+function socketTargets(graph, draggedNodes, draggedItems, dragRect, out) {
   const links = graph.links
   // graph.links es un Map en el frontend actual, pero fue un objeto plano en
   // versiones anteriores. El acceso por índice es el plan B para instalaciones viejas.
   const getLink = (id) => (links?.get ? links.get(id) : links?.[id])
 
-  // entradas del arrastrado alimentadas por el vecino
-  for (const [slot, input] of (draggedNode.inputs || []).entries()) {
-    const link = input?.link != null ? getLink(input.link) : null
-    if (!link || link.origin_id !== neighbour.id) continue
-    const own = draggedNode.getConnectionPos(true, slot, [0, 0])
-    const other = neighbour.getConnectionPos(false, link.origin_slot, [0, 0])
-    pairs.push([own[1], other[1]])
+  const emit = (ownY, anchor) => {
+    out.y.push(mk({
+      ref: "socket",
+      offset: ownY - dragRect.y,   // el socket viaja con el rect
+      value: anchor[1],
+      kind: "socket",
+      guide: { x1: anchor[0] - GUIDE_REACH, y1: anchor[1], x2: anchor[0] + GUIDE_REACH, y2: anchor[1] },
+    }))
   }
 
-  // salidas del arrastrado que alimentan al vecino
-  for (const [slot, output] of (draggedNode.outputs || []).entries()) {
-    for (const id of output?.links || []) {
-      const link = getLink(id)
-      if (!link || link.target_id !== neighbour.id) continue
-      const own = draggedNode.getConnectionPos(false, slot, [0, 0])
-      const other = neighbour.getConnectionPos(true, link.target_slot, [0, 0])
-      pairs.push([own[1], other[1]])
-    }
-  }
-
-  return pairs
-}
-
-function socketTargets(graph, draggedNodes, neighbour, dragRect, out) {
   for (const node of draggedNodes) {
-    for (const [ownY, otherY] of socketPairs(graph, node, neighbour)) {
-      out.y.push(mk({
-        ref: "socket",
-        offset: ownY - dragRect.y,   // el socket viaja con el rect
-        value: otherY,
-        kind: "socket",
-        guide: { x1: dragRect.x - GUIDE_REACH, y1: otherY, x2: dragRect.x + GUIDE_REACH, y2: otherY },
-      }))
+    for (const [slot, input] of (node.inputs || []).entries()) {
+      const link = input?.link != null ? getLink(input.link) : null
+      if (!link) continue
+      const anchor = wireNeighbour(graph, link, "input", draggedItems)
+      if (anchor) emit(node.getConnectionPos(true, slot, [0, 0])[1], anchor)
+    }
+
+    for (const [slot, output] of (node.outputs || []).entries()) {
+      for (const id of output?.links || []) {
+        const link = getLink(id)
+        if (!link) continue
+        const anchor = wireNeighbour(graph, link, "output", draggedItems)
+        if (anchor) emit(node.getConnectionPos(false, slot, [0, 0])[1], anchor)
+      }
     }
   }
 }
@@ -244,7 +261,6 @@ export function collectSnapTargets(graph, draggedItems, dragRect, opts) {
 
     const nRect = rectOf(node)
     edgeTargets(nRect, !!node.flags?.collapsed, opts, out)
-    socketTargets(graph, draggedNodes, node, dragRect, out)
 
     // agrupar por borde izquierdo (redondeado) para detectar columnas
     // Tolerancia de ~1 px: dos nodos colocados a mano casi nunca coinciden al
@@ -255,5 +271,9 @@ export function collectSnapTargets(graph, draggedItems, dragRect, opts) {
   }
 
   gapTargets(columns, dragRect, out)
+
+  // Una vez, no por vecino: recorre los enlaces del nodo arrastrado, así que
+  // encuentra su vecino en el cable sea nodo o reroute.
+  socketTargets(graph, draggedNodes, draggedItems, dragRect, out)
   return out
 }

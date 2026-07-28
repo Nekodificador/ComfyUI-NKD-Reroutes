@@ -348,7 +348,12 @@ function applyPreset(name) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function redraw() {
-  app.graph?.setDirtyCanvas(true, false)
+  // Los dos canvas, no sólo el de delante. Con `links_ontop` desactivado —que es
+  // el defecto— los cables se dibujan en el canvas de FONDO, así que ensuciar
+  // sólo el frente dejaba los cambios de curvatura sin repintar hasta que algo
+  // más ensuciaba el fondo: pasar el ratón por encima del canvas, típicamente.
+  // Desde el panel eso se notaba como que los sliders no hacían nada en vivo.
+  app.graph?.setDirtyCanvas(true, true)
 }
 
 // ─── Reroute Detection ───────────────────────────────────────────────────────

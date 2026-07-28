@@ -1,3 +1,4 @@
+import { app } from "../../../scripts/app.js"
 import { computeSnap } from "./computeSnap.js"
 import { collectSnapTargets, rectOf, unionRect } from "./snapTargets.js"
 
@@ -45,7 +46,9 @@ function draggedNodesOf(canvas) {
 
 // state: el objeto `state` vivo de rerouteSplines.js
 export function installMagnet(state) {
-  installClassicPath(state)
+  const vueNodes = Boolean(app?.ui?.settings?.getSettingValue?.("Comfy.VueNodes.Enabled"))
+  if (vueNodes) installVuePath(state)
+  else installClassicPath(state)
   installGuideRenderer(state)
 }
 
@@ -73,6 +76,30 @@ function installClassicPath(state) {
       this.setDirty(true, true)
       return ret
     }
+  }
+}
+
+// Con Nodes 2.0 el arrastre lo lleva una ruta Vue propia que no pasa por
+// processMouseMove, pero sí escribe en node.pos y fuerza un redibujado del
+// canvas. Enganchamos ahí: es el punto común a las dos rutas.
+function installVuePath(state) {
+  const orig = LGraphCanvas.prototype.drawFrontCanvas
+  if (!orig) return
+
+  let shiftDown = false
+  window.addEventListener("keydown", (e) => { if (e.key === "Shift") shiftDown = true }, true)
+  window.addEventListener("keyup",   (e) => { if (e.key === "Shift") shiftDown = false }, true)
+
+  LGraphCanvas.prototype.drawFrontCanvas = function () {
+    if (!_reentry && state.magnetEnabled && shiftDown && this.state?.draggingItems) {
+      _reentry = true
+      try { applyMagnet(this, state) } finally { _reentry = false }
+    } else if (!this.state?.draggingItems && session.active) {
+      endSession(state, true)   // fin del arrastre: confirma ancho y cierra transacción
+    } else if (!shiftDown && session.active) {
+      endSession(state, false)  // soltó Shift a mitad: se echa atrás, sin ancho
+    }
+    return orig.apply(this, arguments)
   }
 }
 

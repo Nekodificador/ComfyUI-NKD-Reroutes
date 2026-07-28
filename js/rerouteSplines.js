@@ -40,6 +40,12 @@ const DEFAULTS = Object.freeze({
   verticalTightness:        0.5,
   verticalEscapeScale:      0.4,
   nodeBodyClearance:        24,
+  magnetEnabled:            true,
+  magnetRadius:             20,
+  magnetGapX:               36,
+  magnetGapY:               12,
+  magnetGuides:             true,
+  magnetMatchWidth:         true,
 })
 
 // Live mutable state — always reflects current user config
@@ -169,6 +175,12 @@ const SETTING_ID_MAP = {
   "NKD Reroutes.VerticalTightness":     "verticalTightness",
   "NKD Reroutes.VerticalEscapeScale":   "verticalEscapeScale",
   "NKD Reroutes.NodeBodyClearance":     "nodeBodyClearance",
+  "NKD Reroutes.MagnetEnabled":    "magnetEnabled",
+  "NKD Reroutes.MagnetRadius":     "magnetRadius",
+  "NKD Reroutes.MagnetGapX":       "magnetGapX",
+  "NKD Reroutes.MagnetGapY":       "magnetGapY",
+  "NKD Reroutes.MagnetGuides":     "magnetGuides",
+  "NKD Reroutes.MagnetMatchWidth": "magnetMatchWidth",
 }
 
 // ─── Entry Point ─────────────────────────────────────────────────────────────
@@ -203,6 +215,9 @@ const SLIDER_DEFS = [
   { id: "VerticalTightness",         key: "verticalTightness",    label: "Vertical Tightness",       tip: "How much the wire straightens when nearly vertical. 0 = keeps its full curve even when vertical; 1 = collapses to a straight line. Acts as a single control replacing the old Damping Range and Curvature Floor sliders.", min: 0, max: 1.0, step: 0.05 },
   { id: "VerticalEscapeScale",      key: "verticalEscapeScale",  label: "Vertical Escape",          tip: "Adds a vertical component to Bézier handles when a wire is nearly vertical, pulling it clear of the node body. 0 = no escape, 1 = maximum escape.",                                            min: 0,   max: 1.0,  step: 0.05 },
   { id: "NodeBodyClearance",        key: "nodeBodyClearance",    label: "Node Body Clearance",      tip: "Minimum horizontal handle offset (px) when nodes are very close horizontally (dx < 80px). Prevents wires from hiding inside the node border.",                                                  min: 0,   max: 80,   step: 2    },
+  { id: "MagnetRadius", key: "magnetRadius", label: "Magnet Radius",         tip: "Distancia (px) a la que un nodo arrastrado empieza a imantarse a sus vecinos.",           min: 5, max: 60,  step: 1 },
+  { id: "MagnetGapY",   key: "magnetGapY",   label: "Magnet Gap Vertical",   tip: "Hueco (px) que deja el imán al apilar un nodo debajo de otro en la misma columna.",     min: 0, max: 60,  step: 2 },
+  { id: "MagnetGapX",   key: "magnetGapX",   label: "Magnet Gap Horizontal", tip: "Hueco (px) que deja el imán al adosar un nodo al lado de otro en la misma fila.",       min: 0, max: 120, step: 2 },
 ]
 
 const COMBO_DEFS = [
@@ -255,6 +270,21 @@ function registerSettings() {
     defaultValue: 40,
     onChange(v)  { state.simpleRerouteOffset = Number(v); redraw() },
   })
+
+  // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
+  for (const [id, key] of [
+    ["MagnetEnabled",    "magnetEnabled"],
+    ["MagnetGuides",     "magnetGuides"],
+    ["MagnetMatchWidth", "magnetMatchWidth"],
+  ]) {
+    add({
+      id:           `NKD Reroutes.${id}`,
+      name:         `${id} (managed by sidebar)`,
+      type:         "hidden",
+      defaultValue: DEFAULTS[key],
+      onChange(v) { state[key] = Boolean(v); redraw() },
+    })
+  }
 
   // --- Preset selector ---
   add({
@@ -977,6 +1007,27 @@ function buildPanel(el) {
     return row
   }
 
+  function makeToggle(key, label, tip) {
+    const row = document.createElement("div")
+    row.className = "nkd-panel-row"
+    if (tip) row.title = tip
+    const lbl = document.createElement("span")
+    lbl.className = "nkd-panel-label"
+    lbl.textContent = label
+    const wrapLabel = document.createElement("label")
+    wrapLabel.className = "nkd-panel-toggle-label"
+    const cb = document.createElement("input")
+    cb.type = "checkbox"
+    cb.checked = Boolean(getSetting(key))
+    const track = document.createElement("span")
+    track.className = "nkd-panel-toggle-track"
+    wrapLabel.append(cb, track)
+    row.append(lbl, wrapLabel)
+    cb.addEventListener("change", () => { setSetting(key, cb.checked); clearPreset() })
+    _panelRefs.set(key, { el: cb, type: "checkbox" })
+    return row
+  }
+
   // ── Build DOM ────────────────────────────────────────────────────────────────
 
   const wrap = document.createElement("div")
@@ -1019,6 +1070,31 @@ function buildPanel(el) {
     secDotTop.appendChild(makeSlider("simpleRerouteOffset", "Handle offset", 10, 120, 5))
   }
   wrap.appendChild(secDotTop)
+
+  // — MAGNETISMO (visible en ambos modos: no tiene que ver con la tensión) —
+  const secMagnet = makeSection("Magnetismo")
+  secMagnet.appendChild(makeToggle("magnetEnabled", "Imantar con Shift",
+    "Al arrastrar con Shift pulsado, los nodos se alinean y se adosan a sus vecinos."))
+  const magnetRows = [
+    makeSlider("magnetRadius", "Radio del imán", 5, 60, 1),
+    makeSlider("magnetGapY",   "Hueco vertical", 0, 60, 2),
+    makeSlider("magnetGapX",   "Hueco horizontal", 0, 120, 2),
+    makeToggle("magnetGuides", "Mostrar guías",
+      "Dibuja la silueta de destino y las líneas de referencia mientras el imán engancha."),
+    makeToggle("magnetMatchWidth", "Igualar ancho en columna",
+      "Al imantarse a una columna, el nodo adopta también su ancho. Nunca lo estrecha por debajo de su mínimo."),
+  ]
+  magnetRows.forEach(r => secMagnet.appendChild(r))
+
+  function setMagnetEnabled(on) {
+    magnetRows.forEach(r => r.classList.toggle("nkd-panel-disabled", !on))
+  }
+  setMagnetEnabled(Boolean(state.magnetEnabled))
+  _syncHooks.push(() => setMagnetEnabled(Boolean(state.magnetEnabled)))
+  _panelRefs.get("magnetEnabled").el
+    .addEventListener("change", (e) => setMagnetEnabled(e.target.checked))
+
+  wrap.appendChild(secMagnet)
 
   // Shared reset — built once, appended at the end so it sits below all sections.
   const resetBtn = document.createElement("button")

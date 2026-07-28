@@ -17,7 +17,51 @@ https://github.com/user-attachments/assets/18210fcb-15b7-4476-8a25-f4862efe3186
 
 1. Clone or copy this folder into your `ComfyUI/custom_nodes/` directory.
 2. Restart ComfyUI.
-3. Open **Settings → NKD Reroutes** to configure.
+3. Open **Settings → NKD Reroutes** to configure, or the **NKD Wires** sidebar tab.
+
+---
+
+## Node Magnetism
+
+Hold **Shift** while dragging and nodes line themselves up against their neighbours.
+
+The node itself keeps following your mouse — what snaps is a translucent **ghost** showing
+where it will land, plus dashed guides on whatever it is lining up against. The move is
+applied when you release. That way the node never covers the very reference you are aiming
+at, and nothing fights your cursor.
+
+Six behaviours, resolved per axis:
+
+| | Behaviour |
+|---|---|
+| **Column** | Shares the left edge and stacks below with a small gap. |
+| **Row** | Shares the top edge and abuts to the right with a larger gap. |
+| **Straight cable** | Aligns a socket with the adjacent point on its wire — another socket, or a reroute — so that segment runs straight. |
+| **Gap fill** | Dropped between two stacked nodes, it centres itself in the gap. |
+| **Column width** | Snapping into a column also adopts that column's width. Only ever widens: a node is never squeezed below the minimum its widgets need. |
+| **Reroutes** | A reroute squares its Y against the ends of its own cable, and aligns with other reroutes. |
+
+When two rules compete on the same axis, a straight cable wins over filling a gap, and both
+win over aligning an edge. Ties inside a tier go to whichever is nearest.
+
+Nodes with **Pin** enabled neither move nor act as references. Dragging a multi-selection
+snaps the bounding box and moves everything together. Releasing Shift mid-drag backs out.
+Works with both the classic renderer and **Nodes 2.0**.
+
+Far from any neighbour, Shift still gives you ComfyUI's usual snap-to-grid — the magnet
+simply takes over when there is something to align against.
+
+### Magnetism Settings
+
+In the **NKD Wires** sidebar tab, visible in both Simple and Advanced modes.
+
+| Setting | Range | Default | Description |
+|---|---|---|---|
+| Magnet Radius | 5 – 60 px | 20 | How close a neighbour has to be before the magnet grabs. Larger values reach further but jump harder when they let go. |
+| Magnet Gap Vertical | 0 – 60 px | 12 | Gap left when stacking a node below another in the same column. |
+| Magnet Gap Horizontal | 0 – 120 px | 36 | Gap left when abutting a node beside another in the same row. |
+| Show guides | on/off | on | Draws the destination ghost and the reference lines while snapping. |
+| Match column width | on/off | on | Whether snapping into a column also adopts its width. |
 
 ---
 

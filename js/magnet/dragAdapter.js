@@ -130,7 +130,14 @@ function installDragListener(state) {
     setTimeout(() => {
       if (!session.active) return
       const c = app.canvas
-      if (state.magnetEnabled && shiftDown) runMagnetSafely(c, state)
+      // Sin comprobar shiftDown a propósito. Si la sesión sigue viva es que el
+      // usuario NO se echó atrás —soltar Shift la habría cerrado desde el
+      // pointermove—, así que el imán tiene la última palabra. Comprobarlo aquí
+      // era una carrera perdida: al soltar Shift junto con el botón, la tecla
+      // suele llegar antes y el imán se saltaba la pasada final, dejando en pie
+      // el cuantizado a rejilla de LiteGraph (10 px) y el nodo un par de píxeles
+      // fuera de donde marcaba la silueta.
+      if (state.magnetEnabled) runMagnetSafely(c, state)
       endSession(state, true)
       c?.setDirty(true, true)
     }, 0)

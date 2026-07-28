@@ -145,21 +145,6 @@ function shouldEngage(canvas, state) {
 const cancelledMidDrag = (state) =>
   session.active && (!state.magnetEnabled || !_shiftDown)
 
-// Con Nodes 2.0 NO se mueve durante el arrastre, sólo al soltar.
-//
-// Los dos escribimos en el mismo layout store en cada frame: el store de Vue
-// reafirma la posición libre (`batchMoveNodes` con setSource(Vue)) y nuestro
-// setPos escribe la corregida (setSource(Canvas)). Gana quien escriba último en
-// ese frame, así que el nodo parpadea entre las dos posiciones — y empeora al
-// mover el ratón, porque cada pointermove programa una escritura suya. Es una
-// carrera que no se puede ganar desde fuera.
-//
-// Así que ahí el imán calcula en vivo —la silueta y las guías se ven igual— pero
-// aplica el movimiento al soltar, cuando ya no hay nadie con quien pelearse. El
-// renderizador clásico sí se imanta en vivo: aplica deltas y no reafirma nada.
-const liveSnapping = () =>
-  !app?.ui?.settings?.getSettingValue?.("Comfy.VueNodes.Enabled")
-
 // state: el objeto `state` vivo de rerouteSplines.js
 export function installMagnet(state) {
   _state = state
@@ -168,6 +153,16 @@ export function installMagnet(state) {
   installFrameHook(state)      // Nodes 2.0
   installGuideRenderer(state)
 }
+
+// Durante el arrastre el imán NO mueve nada: sólo calcula, para que la silueta y
+// las guías enseñen dónde va a caer mientras el nodo sigue al ratón. El
+// movimiento se aplica al soltar.
+//
+// Es mejor tacto —ves el destino sin que el nodo pelee contigo— y además evita
+// una carrera que con Nodes 2.0 no se puede ganar: el store de Vue reafirma la
+// posición libre en cada frame (`batchMoveNodes`, setSource(Vue)) y el setter de
+// `pos` escribe la nuestra (`moveNode`, setSource(Canvas)). Gana quien escriba
+// último y el nodo parpadea, tanto peor cuanto más se mueve el ratón.
 
 // Con Nodes 2.0 los nodos son elementos DOM y el arrastre lo lleva una ruta Vue
 // propia: el pointermove ni siquiera pasa por el canvas, y las posiciones se
@@ -179,16 +174,16 @@ export function installMagnet(state) {
 // reasignan `canvas.drawFrontCanvas`, y una asignación de instancia tapa el
 // prototipo.
 //
-// Tener los dos enganches vivos a la vez es inofensivo: aplicar el imán dos
-// veces en el mismo frame da el mismo resultado, porque se mide desde la
-// posición libre y la segunda pasada recupera exactamente la misma.
+// Tener los dos enganches vivos a la vez es inofensivo: durante el arrastre sólo
+// calculan, y la posición libre sale del puntero, así que evaluar dos veces en el
+// mismo frame da el mismo resultado.
 function installFrameHook(state) {
   const canvas = app.canvas
   const prev = canvas?.drawFrontCanvas ?? LGraphCanvas.prototype.drawFrontCanvas
   if (!canvas || !prev) return
 
   canvas.drawFrontCanvas = function () {
-    if (shouldEngage(this, state)) runMagnetSafely(this, state, liveSnapping())
+    if (shouldEngage(this, state)) runMagnetSafely(this, state, false)   // sólo calcular: mueve el release
     else if (cancelledMidDrag(state)) endSession(state, false)
     return prev.apply(this, arguments)
   }
@@ -223,7 +218,7 @@ function installDragListener(state) {
   // pudiera aplicarlo — se veía la alineación y no el ancho.
   el.addEventListener("pointermove", () => {
     const c = app.canvas
-    if (shouldEngage(c, state)) runMagnetSafely(c, state, liveSnapping())
+    if (shouldEngage(c, state)) runMagnetSafely(c, state, false)   // sólo calcular: mueve el release
     else if (cancelledMidDrag(state)) endSession(state, false)
   })
 
@@ -247,8 +242,8 @@ function installDragListener(state) {
       // suele llegar antes y el imán se saltaba la pasada final, dejando en pie
       // el cuantizado a rejilla de LiteGraph (10 px) y el nodo un par de píxeles
       // fuera de donde marcaba la silueta.
-      // Aquí se mueve siempre: con Nodes 2.0 es el único momento en que se
-      // aplica, y con el clásico es la pasada que gana al snap a rejilla.
+      // El único momento en que el imán mueve algo. Además es la pasada que
+      // gana al cuantizado a rejilla de LiteGraph, que corre en su pointerup.
       if (state.magnetEnabled) runMagnetSafely(c, state, true)
       endSession(state, true)
       c?.setDirty(true, true)

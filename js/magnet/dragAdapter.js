@@ -44,6 +44,22 @@ function draggedNodesOf(canvas) {
   return [...(canvas.selectedItems || [])].filter(it => it && it.pos && it.size && !it.pinned)
 }
 
+// Único punto de entrada al imán. Un fallo aquí no puede llevarse por delante
+// el arrastre ni el repintado del canvas: se cierra la sesión —y con ella la
+// transacción de undo— y se sigue. El usuario pierde el magnetismo, no el editor.
+function runMagnetSafely(canvas, state) {
+  if (_reentry) return
+  _reentry = true
+  try {
+    applyMagnet(canvas, state)
+  } catch (err) {
+    console.error("[NKD Reroutes] fallo del imán, desactivado en este arrastre:", err)
+    try { endSession(state, false) } catch { /* la sesión ya quedará inconsistente; no empeorarlo */ }
+  } finally {
+    _reentry = false
+  }
+}
+
 // state: el objeto `state` vivo de rerouteSplines.js
 export function installMagnet(state) {
   const vueNodes = Boolean(app?.ui?.settings?.getSettingValue?.("Comfy.VueNodes.Enabled"))
@@ -63,8 +79,7 @@ function installClassicPath(state) {
     const engaged = state.magnetEnabled && e?.shiftKey && this.state?.draggingItems
     if (!engaged) { endSession(state, false); return ret }
 
-    _reentry = true
-    try { applyMagnet(this, state) } finally { _reentry = false }
+    runMagnetSafely(this, state)
     return ret
   }
 
@@ -91,13 +106,13 @@ function installVuePath(state) {
   window.addEventListener("keyup",   (e) => { if (e.key === "Shift") shiftDown = false }, true)
 
   LGraphCanvas.prototype.drawFrontCanvas = function () {
-    if (!_reentry && state.magnetEnabled && shiftDown && this.state?.draggingItems) {
-      _reentry = true
-      try { applyMagnet(this, state) } finally { _reentry = false }
-    } else if (!this.state?.draggingItems && session.active) {
-      endSession(state, true)   // fin del arrastre: confirma ancho y cierra transacción
-    } else if (!shiftDown && session.active) {
-      endSession(state, false)  // soltó Shift a mitad: se echa atrás, sin ancho
+    const dragging = Boolean(this.state?.draggingItems)
+    if (state.magnetEnabled && shiftDown && dragging) {
+      runMagnetSafely(this, state)
+    } else if (session.active) {
+      // Si el arrastre terminó, se confirma. Si sigue en curso es que se soltó
+      // Shift o se apagó el imán a mitad: eso es echarse atrás, sin aplicar ancho.
+      endSession(state, !dragging)
     }
     return orig.apply(this, arguments)
   }
@@ -112,15 +127,18 @@ function applyMagnet(canvas, state) {
 
   // El índice se construye una vez por arrastre: los vecinos no se mueven.
   if (!session.active) {
-    session.graph = canvas.graph
+    // La sesión se marca activa ANTES de recolectar. Si collectSnapTargets
+    // fallara con el flag aún a false, endSession no cerraría la transacción
+    // recién abierta y el siguiente frame volvería a abrir otra.
+    session.graph  = canvas.graph
+    session.nodes  = nodes
+    session.active = true
     canvas.graph?.beforeChange()
 
     session.targets = collectSnapTargets(canvas.graph, canvas.selectedItems, dragRect, {
       gapX: state.magnetGapX,
       gapY: state.magnetGapY,
     })
-    session.active = true
-    session.nodes = nodes
   }
 
   const minWidth = Math.max(...nodes.map(n => (n.computeSize?.()?.[0]) ?? 0))

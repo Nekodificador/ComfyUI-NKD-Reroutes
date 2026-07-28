@@ -76,3 +76,43 @@ test("dentro del mismo escalón gana el más cercano", () => {
   }
   assert.equal(computeSnap(r, targets, OPTS).dx, 4)
 })
+
+const OPTS_W = { radius: 20, matchWidth: true, minWidth: 120 }
+
+test("adopta el ancho de la columna al alinear izquierda con izquierda", () => {
+  const r = rect(108, 50, 200, 80)
+  const targets = {
+    x: [target({ ref: "min", value: 100, column: true, sourceWidth: 260 })],
+    y: [],
+  }
+  assert.equal(computeSnap(r, targets, OPTS_W).width, 260)
+})
+
+test("no toca el ancho al adosar en fila", () => {
+  const r = rect(108, 50, 200, 80)
+  const targets = {
+    x: [target({ ref: "min", value: 100, column: false, sourceWidth: null })],
+    y: [],
+  }
+  assert.equal(computeSnap(r, targets, OPTS_W).width, null)
+})
+
+test("no estrecha por debajo del mínimo del nodo", () => {
+  const r = rect(108, 50, 200, 80)
+  const targets = {
+    x: [target({ ref: "min", value: 100, column: true, sourceWidth: 90 })],
+    y: [],
+  }
+  const out = computeSnap(r, targets, OPTS_W)
+  assert.equal(out.width, null)   // 90 < minWidth 120
+  assert.equal(out.dx, -8)        // pero se alinea igual
+})
+
+test("matchWidth desactivado nunca devuelve ancho", () => {
+  const r = rect(108, 50, 200, 80)
+  const targets = {
+    x: [target({ ref: "min", value: 100, column: true, sourceWidth: 260 })],
+    y: [],
+  }
+  assert.equal(computeSnap(r, targets, OPTS).width, null)
+})

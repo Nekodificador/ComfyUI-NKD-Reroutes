@@ -6,10 +6,12 @@
 const TIER = { socket: 3, gap: 2, edge: 1 }
 
 // Valor actual de la referencia contra la que se mide un candidato.
-function currentRef(rect, axis, t) {
-  if (t.ref === "socket") return rect.y + t.offset
-  if (axis === "x") return t.ref === "max" ? rect.x + rect.w : rect.x
-  return t.ref === "max" ? rect.y + rect.h : rect.y
+function currentRef(rect, axis, target) {
+  // Los sockets sólo existen en el eje Y (conexiones entrada/salida apiladas
+  // verticalmente), así que aquí no hace falta consultar `axis`.
+  if (target.ref === "socket") return rect.y + target.offset
+  if (axis === "x") return target.ref === "max" ? rect.x + rect.w : rect.x
+  return target.ref === "max" ? rect.y + rect.h : rect.y
 }
 
 function bestOnAxis(rect, list, radius, axis) {
@@ -40,10 +42,19 @@ export function computeSnap(rect, targets, opts) {
   if (bx?.t.guide) guides.push(bx.t.guide)
   if (by?.t.guide) guides.push(by.t.guide)
 
+  // Regla 5: si el enganche horizontal es una alineación de columna
+  // (izquierda con izquierda), el nodo adopta el ancho de esa columna.
+  // Ensanchar siempre es seguro; estrechar por debajo de computeSize()[0]
+  // recortaría widgets, así que ahí se renuncia al ancho y sólo se alinea.
+  let width = null
+  if (opts.matchWidth && bx?.t.column && bx.t.sourceWidth != null) {
+    if (bx.t.sourceWidth >= opts.minWidth) width = bx.t.sourceWidth
+  }
+
   return {
     dx: bx ? bx.delta : 0,
     dy: by ? by.delta : 0,
-    width: null,
+    width,
     guides,
   }
 }

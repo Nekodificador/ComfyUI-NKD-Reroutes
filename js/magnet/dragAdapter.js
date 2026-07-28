@@ -103,8 +103,18 @@ function installDragListener(state) {
 
   el.addEventListener("pointermove", () => {
     const c = app.canvas
-    if (engaged(c)) runMagnetSafely(c, state)
-    else if (session.active) endSession(state, false)   // soltó Shift o apagó el imán
+    if (engaged(c)) { runMagnetSafely(c, state); return }
+    if (!session.active) return
+
+    // Aquí SÓLO se cancela si el usuario se echa atrás a propósito: soltar Shift
+    // o apagar el imán. Que el arrastre haya terminado no se resuelve aquí — de
+    // eso se encarga el pointerup, que es quien confirma el ancho.
+    //
+    // Es un caso real, no teórico: al soltar el botón el ratón casi siempre se
+    // mueve un poco, y ese pointermove residual llega con draggingItems ya en
+    // false. Cerrando aquí, mataba la sesión antes de que el pointerup aplazado
+    // pudiera aplicar el ancho — la alineación se veía y el ancho no.
+    if (!state.magnetEnabled || !shiftDown) endSession(state, false)
   })
 
   // El cierre va en window y en fase de CAPTURA: un pointerup despachado sobre

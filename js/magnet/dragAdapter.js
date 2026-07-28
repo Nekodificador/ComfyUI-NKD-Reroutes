@@ -81,19 +81,53 @@ function runMagnetSafely(canvas, state) {
   }
 }
 
-// state: el objeto `state` vivo de rerouteSplines.js
-// Estado de la tecla Shift, compartido por los dos enganches.
+// Estado de teclado y puntero, compartido por los dos enganches.
 let _shiftDown = false
-let _shiftBound = false
-function trackShift() {
-  if (_shiftBound) return
-  _shiftBound = true
+let _pointerDown = false
+let _rectAtDown = null       // rectángulo de la selección al empezar a pulsar
+let _dragConfirmed = false   // ¿se ha movido de verdad, o sólo hay un clic?
+let _inputBound = false
+
+function trackInput() {
+  if (_inputBound) return
+  _inputBound = true
   addEventListener("keydown", (e) => { if (e.key === "Shift") _shiftDown = true }, true)
   addEventListener("keyup",   (e) => { if (e.key === "Shift") _shiftDown = false }, true)
+  addEventListener("pointerdown", () => {
+    _pointerDown = true
+    _rectAtDown = null
+    _dragConfirmed = false
+  }, true)
+  addEventListener("pointerup",     () => { _pointerDown = false }, true)
+  addEventListener("pointercancel", () => { _pointerDown = false }, true)
 }
 
-const engaged = (canvas, state) =>
-  Boolean(state.magnetEnabled && _shiftDown && canvas?.state?.draggingItems)
+// Si hay arrastre se decide mirando los DATOS, no una bandera del renderizador.
+//
+// `canvas.state.draggingItems` sólo lo marca el renderizador clásico: la ruta Vue
+// de Nodes 2.0 monta su propio estado en startDrag y no lo toca, así que
+// comprobarlo dejaba el imán muerto con Nodes 2.0. (Y en una prueba sintética no
+// se nota, porque la bandera la pone uno a mano.)
+//
+// Lo que sí es igual en ambos: si la selección ha cambiado de sitio con el botón
+// pulsado, es un arrastre. Y como se exige movimiento real, ni el paneo ni la
+// selección por caja —que no mueven nada— llegan a activarlo.
+function shouldEngage(canvas, state) {
+  if (!state.magnetEnabled || !_shiftDown || !_pointerDown) return false
+
+  const items = draggedItemsOf(canvas)
+  if (!items.length) return false
+  const rect = unionRect(items.map(rectOf))
+  if (!rect) return false
+
+  if (_dragConfirmed) return true
+  if (!_rectAtDown) { _rectAtDown = rect; return false }
+  if (Math.abs(rect.x - _rectAtDown.x) > 0.01 || Math.abs(rect.y - _rectAtDown.y) > 0.01) {
+    _dragConfirmed = true
+    return true
+  }
+  return false
+}
 
 // Sólo se cancela si el usuario se echa atrás a propósito: soltar Shift o apagar
 // el imán. Que el arrastre haya terminado NO se resuelve aquí — de eso se encarga
@@ -101,8 +135,9 @@ const engaged = (canvas, state) =>
 const cancelledMidDrag = (state) =>
   session.active && (!state.magnetEnabled || !_shiftDown)
 
+// state: el objeto `state` vivo de rerouteSplines.js
 export function installMagnet(state) {
-  trackShift()
+  trackInput()
   installDragListener(state)   // renderizador clásico
   installFrameHook(state)      // Nodes 2.0
   installGuideRenderer(state)
@@ -127,7 +162,7 @@ function installFrameHook(state) {
   if (!canvas || !prev) return
 
   canvas.drawFrontCanvas = function () {
-    if (engaged(this, state)) runMagnetSafely(this, state)
+    if (shouldEngage(this, state)) runMagnetSafely(this, state)
     else if (cancelledMidDrag(state)) endSession(state, false)
     return prev.apply(this, arguments)
   }
@@ -162,7 +197,7 @@ function installDragListener(state) {
   // pudiera aplicarlo — se veía la alineación y no el ancho.
   el.addEventListener("pointermove", () => {
     const c = app.canvas
-    if (engaged(c, state)) runMagnetSafely(c, state)
+    if (shouldEngage(c, state)) runMagnetSafely(c, state)
     else if (cancelledMidDrag(state)) endSession(state, false)
   })
 

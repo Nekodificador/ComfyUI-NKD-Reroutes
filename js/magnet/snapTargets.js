@@ -16,6 +16,12 @@ export function rectOf(node) {
   return { x, y, w: node.size[0], h: node.size[1] + th }
 }
 
+/**
+ * Rectángulo que envuelve a todos los de la lista.
+ * Lo usa dragAdapter para tratar una selección múltiple como un solo bloque.
+ * @param {Array<{x,y,w,h}>} rects
+ * @returns {{x,y,w,h}|null} null si la lista viene vacía
+ */
 export function unionRect(rects) {
   if (!rects.length) return null
   let x0 =  Infinity, y0 =  Infinity
@@ -29,6 +35,9 @@ export function unionRect(rects) {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
 }
 
+// Fábrica de candidatos: rellena todos los campos que lee computeSnap y deja
+// sobrescribir los que importen. Así ningún candidato sale con huecos, que
+// serían un fallo silencioso —el motor leería undefined y no petaría—.
 const mk = (over) => ({
   ref: "min", offset: 0, value: 0, kind: "edge",
   column: false, sourceWidth: null, guide: null, ...over,
@@ -70,6 +79,8 @@ function edgeTargets(nRect, neighbourIsCollapsed, opts, out) {
 function socketPairs(graph, draggedNode, neighbour) {
   const pairs = []
   const links = graph.links
+  // graph.links es un Map en el frontend actual, pero fue un objeto plano en
+  // versiones anteriores. El acceso por índice es el plan B para instalaciones viejas.
   const getLink = (id) => (links?.get ? links.get(id) : links?.[id])
 
   // entradas del arrastrado alimentadas por el vecino
@@ -151,6 +162,8 @@ export function collectSnapTargets(graph, draggedItems, dragRect, opts) {
     socketTargets(graph, draggedNodes, node, dragRect, out)
 
     // agrupar por borde izquierdo (redondeado) para detectar columnas
+    // Tolerancia de ~1 px: dos nodos colocados a mano casi nunca coinciden al
+    // decimal, y para el ojo ya están en la misma columna.
     const key = Math.round(nRect.x)
     if (!columns.has(key)) columns.set(key, [])
     columns.get(key).push(nRect)

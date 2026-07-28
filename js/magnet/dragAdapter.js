@@ -82,9 +82,55 @@ function runMagnetSafely(canvas, state) {
 }
 
 // state: el objeto `state` vivo de rerouteSplines.js
+// Estado de la tecla Shift, compartido por los dos enganches.
+let _shiftDown = false
+let _shiftBound = false
+function trackShift() {
+  if (_shiftBound) return
+  _shiftBound = true
+  addEventListener("keydown", (e) => { if (e.key === "Shift") _shiftDown = true }, true)
+  addEventListener("keyup",   (e) => { if (e.key === "Shift") _shiftDown = false }, true)
+}
+
+const engaged = (canvas, state) =>
+  Boolean(state.magnetEnabled && _shiftDown && canvas?.state?.draggingItems)
+
+// Sólo se cancela si el usuario se echa atrás a propósito: soltar Shift o apagar
+// el imán. Que el arrastre haya terminado NO se resuelve aquí — de eso se encarga
+// el pointerup, que es quien confirma el ancho.
+const cancelledMidDrag = (state) =>
+  session.active && (!state.magnetEnabled || !_shiftDown)
+
 export function installMagnet(state) {
-  installDragListener(state)
+  trackShift()
+  installDragListener(state)   // renderizador clásico
+  installFrameHook(state)      // Nodes 2.0
   installGuideRenderer(state)
+}
+
+// Con Nodes 2.0 los nodos son elementos DOM y el arrastre lo lleva una ruta Vue
+// propia: el pointermove ni siquiera pasa por el canvas, y las posiciones se
+// escriben dentro de un requestAnimationFrame, no en el manejador del puntero.
+// Engancharse al puntero no sirve ahí ni moviendo el listener; hace falta un
+// punto por frame, con las posiciones ya actualizadas.
+//
+// Sobre la INSTANCIA, no el prototipo: hay componentes del frontend que
+// reasignan `canvas.drawFrontCanvas`, y una asignación de instancia tapa el
+// prototipo.
+//
+// Tener los dos enganches vivos a la vez es inofensivo: aplicar el imán dos
+// veces en el mismo frame da el mismo resultado, porque se mide desde la
+// posición libre y la segunda pasada recupera exactamente la misma.
+function installFrameHook(state) {
+  const canvas = app.canvas
+  const prev = canvas?.drawFrontCanvas ?? LGraphCanvas.prototype.drawFrontCanvas
+  if (!canvas || !prev) return
+
+  canvas.drawFrontCanvas = function () {
+    if (engaged(this, state)) runMagnetSafely(this, state)
+    else if (cancelledMidDrag(state)) endSession(state, false)
+    return prev.apply(this, arguments)
+  }
 }
 
 // El imán se engancha con un listener propio, NO parcheando el prototipo.
@@ -110,26 +156,14 @@ function installDragListener(state) {
   const el = app.canvas?.canvas
   if (!el) return
 
-  let shiftDown = false
-  addEventListener("keydown", (e) => { if (e.key === "Shift") shiftDown = true }, true)
-  addEventListener("keyup",   (e) => { if (e.key === "Shift") shiftDown = false }, true)
-
-  const engaged = (c) => Boolean(state.magnetEnabled && shiftDown && c?.state?.draggingItems)
-
+  // Ojo con el cierre: al soltar el botón el ratón casi siempre se mueve un
+  // poco, y ese pointermove residual llega con draggingItems ya en false.
+  // Cerrar la sesión ahí mataba el ancho antes de que el pointerup aplazado
+  // pudiera aplicarlo — se veía la alineación y no el ancho.
   el.addEventListener("pointermove", () => {
     const c = app.canvas
-    if (engaged(c)) { runMagnetSafely(c, state); return }
-    if (!session.active) return
-
-    // Aquí SÓLO se cancela si el usuario se echa atrás a propósito: soltar Shift
-    // o apagar el imán. Que el arrastre haya terminado no se resuelve aquí — de
-    // eso se encarga el pointerup, que es quien confirma el ancho.
-    //
-    // Es un caso real, no teórico: al soltar el botón el ratón casi siempre se
-    // mueve un poco, y ese pointermove residual llega con draggingItems ya en
-    // false. Cerrando aquí, mataba la sesión antes de que el pointerup aplazado
-    // pudiera aplicar el ancho — la alineación se veía y el ancho no.
-    if (!state.magnetEnabled || !shiftDown) endSession(state, false)
+    if (engaged(c, state)) runMagnetSafely(c, state)
+    else if (cancelledMidDrag(state)) endSession(state, false)
   })
 
   // El cierre va en window y en fase de CAPTURA: un pointerup despachado sobre

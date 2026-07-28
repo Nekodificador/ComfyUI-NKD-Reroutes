@@ -129,23 +129,29 @@ function installGuideRenderer(state) {
     prev?.call(this, ctx, visibleArea)
     if (!session.active || !state.magnetGuides || !session.result) return
 
-    const { guides } = session.result
-    if (!guides.length) return
+    // Las guías y la silueta se dibujan por separado. Sólo los candidatos de
+    // alineación llevan guía; los de adosado no. Un enganche que gane sólo por
+    // apilado deja `guides` vacío y aun así mueve el nodo, así que salir aquí
+    // dejaría ese caso sin ningún indicador.
+    const { guides, ghost } = session.result
+    if (!guides.length && !ghost) return
 
     ctx.save()
-    ctx.setLineDash([6, 5])
-    ctx.lineWidth = 1
-    ctx.strokeStyle = "#FFFFFF66"
-    ctx.beginPath()
-    for (const g of guides) {
-      ctx.moveTo(g.x1, g.y1)
-      ctx.lineTo(g.x2, g.y2)
+
+    if (guides.length) {
+      ctx.setLineDash([6, 5])
+      ctx.lineWidth = 1
+      ctx.strokeStyle = "#FFFFFF66"
+      ctx.beginPath()
+      for (const g of guides) {
+        ctx.moveTo(g.x1, g.y1)
+        ctx.lineTo(g.x2, g.y2)
+      }
+      ctx.stroke()
     }
-    ctx.stroke()
 
     // Silueta de destino. Se dibuja con el ancho final para que el cambio de
     // forma de la regla 5 se vea venir antes de soltar.
-    const ghost = session.result.ghost
     if (ghost) {
       ctx.setLineDash([])
       ctx.lineWidth = 0.5

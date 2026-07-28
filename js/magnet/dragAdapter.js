@@ -10,6 +10,9 @@ const session = {
   targets: null,
   nodes:   [],
   result:  null,
+  // Corrección que aplicó el imán en el frame anterior. Se resta para recuperar
+  // la posición libre del ratón; sin ella el nodo se queda pegado al enganche.
+  applied: { x: 0, y: 0 },
 }
 
 let _reentry = false
@@ -43,6 +46,7 @@ function endSession(state, commit) {
     session.targets = null
     session.nodes = []
     session.result = null
+    session.applied = { x: 0, y: 0 }
   }
 }
 
@@ -162,8 +166,9 @@ function applyMagnet(canvas, state) {
     // fallara con el flag aún a false, endSession no cerraría la transacción
     // recién abierta y el siguiente frame volvería a abrir otra.
     session.graph  = canvas.graph
-    session.nodes  = nodes
-    session.active = true
+    session.nodes   = nodes
+    session.active  = true
+    session.applied = { x: 0, y: 0 }   // el primer frame aún no lleva corrección
     canvas.graph?.beforeChange()
 
     session.targets = collectSnapTargets(canvas.graph, canvas.selectedItems, dragRect, {
@@ -172,8 +177,26 @@ function applyMagnet(canvas, state) {
     })
   }
 
+  // Posición libre: dónde estaría el nodo si el imán no existiera.
+  //
+  // LiteGraph suma el delta del ratón sobre la posición que dejamos corregida el
+  // frame anterior, así que `dragRect` ya lleva nuestra corrección dentro.
+  // Medir desde ahí es medir desde nosotros mismos: la distancia al punto de
+  // enganche nunca crece por mucho que arrastres, y el nodo se queda pegado —
+  // sólo escaparía moviendo más de `radius` px en un único frame.
+  //
+  // Restando la corrección anterior recuperamos el recorrido real del ratón, que
+  // es lo que hace que el imán se sienta elástico: agarra dentro del radio y
+  // suelta en cuanto de verdad te alejas.
+  const free = {
+    x: dragRect.x - session.applied.x,
+    y: dragRect.y - session.applied.y,
+    w: dragRect.w,
+    h: dragRect.h,
+  }
+
   const minWidth = Math.max(...nodes.map(n => (n.computeSize?.()?.[0]) ?? 0))
-  const result = computeSnap(dragRect, session.targets, {
+  const result = computeSnap(free, session.targets, {
     radius:     state.magnetRadius,
     matchWidth: Boolean(state.magnetMatchWidth),
     minWidth,
@@ -182,20 +205,24 @@ function applyMagnet(canvas, state) {
 
   // La silueta va donde caerá el nodo, con el ancho que tendrá al soltar.
   result.ghost = {
-    x: dragRect.x + result.dx,
-    y: dragRect.y + result.dy,
-    w: result.width ?? dragRect.w,
-    h: dragRect.h,
+    x: free.x + result.dx,
+    y: free.y + result.dy,
+    w: result.width ?? free.w,
+    h: free.h,
   }
 
-  if (result.dx || result.dy) {
+  // Del sitio donde está ahora al sitio que le toca: libre + enganche.
+  const moveX = (free.x + result.dx) - dragRect.x
+  const moveY = (free.y + result.dy) - dragRect.y
+  if (moveX || moveY) {
     for (const n of nodes) {
       // setPos(), nunca n.pos[0] += dx: `pos` es un Float64Array y el setter de
       // la clase sincroniza el layout store. Mutar el índice se lo salta.
-      n.setPos(n.pos[0] + result.dx, n.pos[1] + result.dy)
+      n.setPos(n.pos[0] + moveX, n.pos[1] + moveY)
     }
     canvas.setDirty(true, true)
   }
+  session.applied = { x: result.dx, y: result.dy }
 }
 
 function installGuideRenderer(state) {

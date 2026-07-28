@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-nkd-reroutes"
-version = "1.3.0"
-description = "Visual reroute style overhaul for ComfyUI — Blender-inspired spline curves with configurable tension, crossing behavior, and dot size."
+version = "1.4.0"
+description = "Visual reroute style overhaul for ComfyUI — Blender-inspired spline curves with configurable tension, crossing behavior, and dot size, plus Shift-drag node magnetism."
 license = "MIT"
 requires-python = ">=3.10"
 

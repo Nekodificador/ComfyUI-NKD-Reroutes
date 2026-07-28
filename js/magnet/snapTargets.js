@@ -2,10 +2,21 @@
 // Se ejecuta UNA VEZ al empezar el arrastre: los vecinos no se mueven mientras
 // arrastras, así que recalcularlos por frame sería trabajo tirado.
 
+// Un reroute es un punto de una conexión, no un nodo: no tiene `size` ni
+// `computeSize`, y su posición se escribe con `pos = [x, y]` porque tampoco
+// tiene `setPos`.
+export function isReroute(item) {
+  return !!item && item.linkIds !== undefined && item.size === undefined
+}
+
 // Rectángulo del nodo en coordenadas de grafo, barra de título incluida.
 // Derivado de pos/size en vez de getBounding() porque boundingRect sólo se
 // refresca al dibujar y durante el arrastre puede ir un frame por detrás.
 export function rectOf(node) {
+  // Un reroute se trata como rectángulo de tamaño cero: así `ref:"min"` apunta
+  // al punto en sí y las alineaciones caen justo sobre el centro del dot.
+  if (isReroute(node)) return { x: node.pos[0], y: node.pos[1], w: 0, h: 0 }
+
   const th = LiteGraph.NODE_TITLE_HEIGHT
   const x = node.pos[0]
   const y = node.pos[1] - th
@@ -140,6 +151,68 @@ function gapTargets(columns, dragRect, out) {
   }
 }
 
+// Los dos extremos del cable a los que toca un reroute: el punto de aguas
+// arriba (el reroute padre, o el socket de salida si es el primero de la
+// cadena) y, por cada enlace que lo cruza, el punto de aguas abajo (el
+// siguiente reroute, o el socket de entrada si es el último).
+function rerouteAnchors(graph, reroute) {
+  const pts = []
+  const links = graph.links
+  const getLink = (id) => (links?.get ? links.get(id) : links?.[id])
+
+  const parent = reroute.parent
+  if (parent) {
+    pts.push([parent.pos[0], parent.pos[1]])
+  } else {
+    const link = reroute.firstLink
+    const src = link && graph.getNodeById?.(link.origin_id)
+    if (src) pts.push(src.getConnectionPos(false, link.origin_slot, [0, 0]))
+  }
+
+  for (const id of reroute.linkIds ?? []) {
+    const link = getLink(id)
+    if (!link) continue
+    const chain = graph.reroutes?.get?.(link.parentId)?.getReroutes?.() ?? []
+    const i = chain.findIndex(r => r?.id === reroute.id)
+    const next = i >= 0 ? chain[i + 1] : undefined
+    if (next) {
+      pts.push([next.pos[0], next.pos[1]])
+    } else {
+      const dst = graph.getNodeById?.(link.target_id)
+      if (dst) pts.push(dst.getConnectionPos(true, link.target_slot, [0, 0]))
+    }
+  }
+  return pts
+}
+
+// Candidatos para un arrastre de reroutes: cuadrar el cable con sus extremos
+// (prioridad socket) y, por debajo, alinearse con los demás reroutes del grafo
+// para poder montar columnas y filas limpias de puntos.
+function rerouteTargets(graph, draggedReroutes, draggedItems, out) {
+  for (const r of draggedReroutes) {
+    for (const [ax, ay] of rerouteAnchors(graph, r)) {
+      // Sólo la Y del extremo: es lo que deja el tramo de cable recto.
+      //
+      // Deliberadamente NO se emite la X. Alinear la X con el extremo dejaría el
+      // tramo vertical, que suena simétrico pero en la práctica estorba: los
+      // cables de ComfyUI van casi siempre de izquierda a derecha, así que ese
+      // candidato acaba arrastrando el punto de lado hasta plantarlo encima del
+      // socket. Para columnas de reroutes ya están los candidatos de abajo.
+      out.y.push(mk({
+        ref: "min", value: ay, kind: "socket",
+        guide: { x1: ax - GUIDE_REACH, y1: ay, x2: ax + GUIDE_REACH, y2: ay },
+      }))
+    }
+  }
+
+  for (const other of graph.reroutes?.values?.() ?? []) {
+    if (draggedItems.has(other)) continue
+    const [ox, oy] = other.pos
+    out.x.push(mk({ ref: "min", value: ox, guide: { x1: ox, y1: oy - GUIDE_REACH, x2: ox, y2: oy + GUIDE_REACH } }))
+    out.y.push(mk({ ref: "min", value: oy, guide: { x1: ox - GUIDE_REACH, y1: oy, x2: ox + GUIDE_REACH, y2: oy } }))
+  }
+}
+
 /**
  * @param {LGraph} graph
  * @param {Set} draggedItems    canvas.selectedItems
@@ -151,7 +224,19 @@ export function collectSnapTargets(graph, draggedItems, dragRect, opts) {
   const out = { x: [], y: [] }
   if (!graph) return out
 
-  const draggedNodes = [...draggedItems].filter(it => it?.isVirtualNode !== true && it?.inputs !== undefined)
+  const dragged = [...draggedItems]
+  const draggedReroutes = dragged.filter(isReroute)
+
+  // Arrastrando sólo reroutes el juego cambia: un reroute no tiene bordes que
+  // alinear ni ancho que igualar, y meterle los candidatos de los nodos sería
+  // ruido —seis por nodo— en el que se perdería lo único que importa, que es
+  // cuadrar el cable. Así que esa ruta lleva su propio índice.
+  if (draggedReroutes.length && draggedReroutes.length === dragged.length) {
+    rerouteTargets(graph, draggedReroutes, draggedItems, out)
+    return out
+  }
+
+  const draggedNodes = dragged.filter(it => it?.isVirtualNode !== true && it?.inputs !== undefined)
   const columns = new Map()
 
   for (const node of graph.nodes) {

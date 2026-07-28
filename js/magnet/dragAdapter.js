@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js"
 import { computeSnap } from "./computeSnap.js"
-import { collectSnapTargets, rectOf, unionRect } from "./snapTargets.js"
+import { collectSnapTargets, isReroute, rectOf, unionRect } from "./snapTargets.js"
 
 // Estado del arrastre en curso. El índice de candidatos se construye una sola
 // vez, en el primer frame en que el imán está activo, y se tira al soltar.
@@ -24,7 +24,7 @@ function commitWidth(state) {
   if (!state.magnetMatchWidth || width == null) return
 
   for (const n of session.nodes) {
-    if (n.flags?.collapsed) continue
+    if (isReroute(n) || n.flags?.collapsed) continue   // un reroute no tiene ancho
     const min = n.computeSize?.()?.[0] ?? 0
     if (width < min) continue          // nunca por debajo del mínimo del nodo
     n.setSize([width, n.size[1]])
@@ -50,8 +50,19 @@ function endSession(state, commit) {
   }
 }
 
-function draggedNodesOf(canvas) {
-  return [...(canvas.selectedItems || [])].filter(it => it && it.pos && it.size && !it.pinned)
+// Nodos Y reroutes: un reroute tiene `pos` pero no `size`, así que exigir size
+// aquí era justamente lo que los dejaba fuera del imán.
+function draggedItemsOf(canvas) {
+  return [...(canvas.selectedItems || [])].filter(it => it && it.pos && !it.pinned)
+}
+
+// Mover. Los nodos van por setPos() —su setter sincroniza el layout store—;
+// un reroute no tiene setPos y se escribe por su setter de `pos`.
+function moveItem(item, dx, dy) {
+  const x = item.pos[0] + dx
+  const y = item.pos[1] + dy
+  if (typeof item.setPos === "function") item.setPos(x, y)
+  else item.pos = [x, y]
 }
 
 // Único punto de entrada al imán. Un fallo aquí no puede llevarse por delante
@@ -154,7 +165,7 @@ function installDragListener(state) {
 }
 
 function applyMagnet(canvas, state) {
-  const nodes = draggedNodesOf(canvas)
+  const nodes = draggedItemsOf(canvas)
   if (!nodes.length) { endSession(state, false); return }
 
   const dragRect = unionRect(nodes.map(rectOf))
@@ -215,11 +226,7 @@ function applyMagnet(canvas, state) {
   const moveX = (free.x + result.dx) - dragRect.x
   const moveY = (free.y + result.dy) - dragRect.y
   if (moveX || moveY) {
-    for (const n of nodes) {
-      // setPos(), nunca n.pos[0] += dx: `pos` es un Float64Array y el setter de
-      // la clase sincroniza el layout store. Mutar el índice se lo salta.
-      n.setPos(n.pos[0] + moveX, n.pos[1] + moveY)
-    }
+    for (const n of nodes) moveItem(n, moveX, moveY)
     canvas.setDirty(true, true)
   }
   session.applied = { x: result.dx, y: result.dy }

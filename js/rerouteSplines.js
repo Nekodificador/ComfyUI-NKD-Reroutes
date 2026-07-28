@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js"
+import { installMagnet } from "./magnet/dragAdapter.js"
 
 // ─── NKD Reroutes — Rewritten v2.0 ──────────────────────────────────────────
 //
@@ -191,6 +192,7 @@ app.registerExtension({
     registerSettings()
     patchLiteGraph()
     registerSidebarPanel()
+    installMagnet(state)
   },
 })
 

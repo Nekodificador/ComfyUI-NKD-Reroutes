@@ -29,15 +29,21 @@ function commitWidth(state) {
 }
 
 function endSession(state, commit) {
-  if (session.active) {
-    if (commit) commitWidth(state)
-    session.graph?.afterChange()
+  try {
+    if (session.active) {
+      if (commit) commitWidth(state)
+      session.graph?.afterChange()
+    }
+  } finally {
+    // En finally a propósito: si commitWidth o afterChange fallan, la sesión
+    // TIENE que quedar limpia igualmente. Si no, se queda activa para siempre
+    // y todos los arrastres siguientes reutilizan un índice muerto.
+    session.active = false
+    session.graph = null
+    session.targets = null
+    session.nodes = []
+    session.result = null
   }
-  session.active = false
-  session.graph = null
-  session.targets = null
-  session.nodes = []
-  session.result = null
 }
 
 function draggedNodesOf(canvas) {
@@ -62,60 +68,68 @@ function runMagnetSafely(canvas, state) {
 
 // state: el objeto `state` vivo de rerouteSplines.js
 export function installMagnet(state) {
-  const vueNodes = Boolean(app?.ui?.settings?.getSettingValue?.("Comfy.VueNodes.Enabled"))
-  if (vueNodes) installVuePath(state)
-  else installClassicPath(state)
+  installDragListener(state)
   installGuideRenderer(state)
 }
 
-function installClassicPath(state) {
-  const orig = LGraphCanvas.prototype.processMouseMove
-  if (!orig) return
-
-  LGraphCanvas.prototype.processMouseMove = function (e) {
-    const ret = orig.apply(this, arguments)   // deja que LiteGraph mueva primero
-    if (_reentry) return ret
-
-    const engaged = state.magnetEnabled && e?.shiftKey && this.state?.draggingItems
-    if (!engaged) { endSession(state, false); return ret }
-
-    runMagnetSafely(this, state)
-    return ret
-  }
-
-  const origUp = LGraphCanvas.prototype.processMouseUp
-  if (origUp) {
-    LGraphCanvas.prototype.processMouseUp = function () {
-      const ret = origUp.apply(this, arguments)
-      endSession(state, true)
-      this.setDirty(true, true)
-      return ret
-    }
-  }
-}
-
-// Con Nodes 2.0 el arrastre lo lleva una ruta Vue propia que no pasa por
-// processMouseMove, pero sí escribe en node.pos y fuerza un redibujado del
-// canvas. Enganchamos ahí: es el punto común a las dos rutas.
-function installVuePath(state) {
-  const orig = LGraphCanvas.prototype.drawFrontCanvas
-  if (!orig) return
+// El imán se engancha con un listener propio, NO parcheando el prototipo.
+//
+// Por qué: LiteGraph captura sus manejadores al construir el canvas
+// —`this._mousemove_callback = this.processMouseMove.bind(this)`— y registra
+// esa referencia en el listener. Un parche posterior sobre
+// `LGraphCanvas.prototype.processMouseMove` no toca la referencia capturada, así
+// que en un arrastre real no se ejecuta jamás. (Llamar a
+// `canvas.processMouseMove(ev)` a mano sí resuelve por el prototipo: por eso el
+// parche parecía funcionar en pruebas sintéticas y no hacía nada con el ratón.)
+//
+// Parchear el dibujado tampoco vale: tanto `drawFrontCanvas` como
+// `onDrawForeground` los reasignan otros por INSTANCIA
+// (`canvas.drawFrontCanvas = () => {...}`), y una asignación de instancia tapa
+// el prototipo. Quién gana depende del orden de arranque.
+//
+// Un listener extra en el mismo elemento no lo tapa nadie: se encola detrás del
+// de LiteGraph, así que corre justo después de que éste haya movido el nodo,
+// que es exactamente lo que necesitamos. Y sirve igual para el renderizador
+// clásico y para Nodes 2.0, porque ambos acaban escribiendo en `node.pos`.
+function installDragListener(state) {
+  const el = app.canvas?.canvas
+  if (!el) return
 
   let shiftDown = false
-  window.addEventListener("keydown", (e) => { if (e.key === "Shift") shiftDown = true }, true)
-  window.addEventListener("keyup",   (e) => { if (e.key === "Shift") shiftDown = false }, true)
+  addEventListener("keydown", (e) => { if (e.key === "Shift") shiftDown = true }, true)
+  addEventListener("keyup",   (e) => { if (e.key === "Shift") shiftDown = false }, true)
 
-  LGraphCanvas.prototype.drawFrontCanvas = function () {
-    const dragging = Boolean(this.state?.draggingItems)
-    if (state.magnetEnabled && shiftDown && dragging) {
-      runMagnetSafely(this, state)
-    } else if (session.active) {
-      // Si el arrastre terminó, se confirma. Si sigue en curso es que se soltó
-      // Shift o se apagó el imán a mitad: eso es echarse atrás, sin aplicar ancho.
-      endSession(state, !dragging)
-    }
-    return orig.apply(this, arguments)
+  const engaged = (c) => Boolean(state.magnetEnabled && shiftDown && c?.state?.draggingItems)
+
+  el.addEventListener("pointermove", () => {
+    const c = app.canvas
+    if (engaged(c)) runMagnetSafely(c, state)
+    else if (session.active) endSession(state, false)   // soltó Shift o apagó el imán
+  })
+
+  // El cierre va en window y en fase de CAPTURA: un pointerup despachado sobre
+  // el canvas no llega a los listeners del propio elemento —alguien lo para
+  // antes de la fase target—, así que escuchar en `el` no sirve.
+  //
+  // Pero capturar significa correr ANTES que LiteGraph, que en su pointerup
+  // aplica el snap a rejilla. Por eso el cierre se aplaza un tick: para entonces
+  // LiteGraph ya ha terminado y una última pasada del imán sobrescribe la
+  // rejilla, que es lo que queremos —cerca de un vecino manda el imán—.
+  const finish = () => {
+    if (!session.active) return
+    setTimeout(() => {
+      if (!session.active) return
+      const c = app.canvas
+      if (state.magnetEnabled && shiftDown) runMagnetSafely(c, state)
+      endSession(state, true)
+      c?.setDirty(true, true)
+    }, 0)
   }
+  addEventListener("pointerup", finish, true)
+
+  // Cierres de seguridad: la transacción de undo no puede quedarse abierta.
+  addEventListener("pointercancel", () => { if (session.active) endSession(state, false) }, true)
+  addEventListener("blur",          () => { if (session.active) endSession(state, false) })
 }
 
 function applyMagnet(canvas, state) {
@@ -168,9 +182,14 @@ function applyMagnet(canvas, state) {
 }
 
 function installGuideRenderer(state) {
-  // Encadenar, nunca sobrescribir: el core ya engancha aquí el borde de selección.
-  const prev = LGraphCanvas.prototype.onDrawForeground
-  LGraphCanvas.prototype.onDrawForeground = function (ctx, visibleArea) {
+  // Sobre la INSTANCIA, no sobre el prototipo: el core asigna aquí por instancia
+  // (`canvas.onDrawForeground = ...` para el borde de selección) y una asignación
+  // de instancia tapa el prototipo. Enganchando en la instancia recogemos lo que
+  // ya hubiera, y si alguien encadena después nos recogerá a nosotros.
+  const canvas = app.canvas
+  if (!canvas) return
+  const prev = canvas.onDrawForeground ?? LGraphCanvas.prototype.onDrawForeground
+  canvas.onDrawForeground = function (ctx, visibleArea) {
     prev?.call(this, ctx, visibleArea)
     if (!session.active || !state.magnetGuides || !session.result) return
 

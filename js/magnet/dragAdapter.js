@@ -10,9 +10,10 @@ const session = {
   targets: null,
   nodes:   [],
   result:  null,
-  // Corrección que aplicó el imán en el frame anterior. Se resta para recuperar
-  // la posición libre del ratón; sin ella el nodo se queda pegado al enganche.
-  applied: { x: 0, y: 0 },
+  // Origen del arrastre. La posición libre se reconstruye desde aquí con el
+  // recorrido del puntero, en vez de inferirla de dónde está ahora el nodo.
+  originRect:    null,
+  originPointer: null,
 }
 
 let _reentry = false
@@ -46,7 +47,8 @@ function endSession(state, commit) {
     session.targets = null
     session.nodes = []
     session.result = null
-    session.applied = { x: 0, y: 0 }
+    session.originRect = null
+    session.originPointer = null
   }
 }
 
@@ -84,19 +86,27 @@ function runMagnetSafely(canvas, state) {
 // Estado de teclado y puntero, compartido por los dos enganches.
 let _shiftDown = false
 let _pointerDown = false
+let _pointer = { x: 0, y: 0 }
 let _rectAtDown = null       // rectángulo de la selección al empezar a pulsar
 let _dragConfirmed = false   // ¿se ha movido de verdad, o sólo hay un clic?
 let _inputBound = false
+let _state = null            // el `state` vivo, para poder cerrar sesión desde los listeners
 
 function trackInput() {
   if (_inputBound) return
   _inputBound = true
   addEventListener("keydown", (e) => { if (e.key === "Shift") _shiftDown = true }, true)
   addEventListener("keyup",   (e) => { if (e.key === "Shift") _shiftDown = false }, true)
-  addEventListener("pointerdown", () => {
+  // El puntero se rastrea siempre: es de donde sale la posición libre.
+  addEventListener("pointermove", (e) => { _pointer = { x: e.clientX, y: e.clientY } }, true)
+  addEventListener("pointerdown", (e) => {
+    _pointer = { x: e.clientX, y: e.clientY }
     _pointerDown = true
     _rectAtDown = null
     _dragConfirmed = false
+    // El cierre del arrastre anterior va aplazado un tick. Si empieza otro antes
+    // de que corra, heredaría su origen y la posición libre saldría disparatada.
+    if (session.active && _state) endSession(_state, false)
   }, true)
   addEventListener("pointerup",     () => { _pointerDown = false }, true)
   addEventListener("pointercancel", () => { _pointerDown = false }, true)
@@ -137,6 +147,7 @@ const cancelledMidDrag = (state) =>
 
 // state: el objeto `state` vivo de rerouteSplines.js
 export function installMagnet(state) {
+  _state = state
   trackInput()
   installDragListener(state)   // renderizador clásico
   installFrameHook(state)      // Nodes 2.0
@@ -245,10 +256,13 @@ function applyMagnet(canvas, state) {
     // La sesión se marca activa ANTES de recolectar. Si collectSnapTargets
     // fallara con el flag aún a false, endSession no cerraría la transacción
     // recién abierta y el siguiente frame volvería a abrir otra.
-    session.graph  = canvas.graph
+    session.graph   = canvas.graph
     session.nodes   = nodes
     session.active  = true
-    session.applied = { x: 0, y: 0 }   // el primer frame aún no lleva corrección
+    // Origen del arrastre: desde aquí se reconstruye la posición libre a partir
+    // del recorrido del puntero, sin depender de quién escriba node.pos.
+    session.originRect    = { x: dragRect.x, y: dragRect.y }
+    session.originPointer = { ..._pointer }
     canvas.graph?.beforeChange()
 
     session.targets = collectSnapTargets(canvas.graph, canvas.selectedItems, dragRect, {
@@ -259,18 +273,19 @@ function applyMagnet(canvas, state) {
 
   // Posición libre: dónde estaría el nodo si el imán no existiera.
   //
-  // LiteGraph suma el delta del ratón sobre la posición que dejamos corregida el
-  // frame anterior, así que `dragRect` ya lleva nuestra corrección dentro.
-  // Medir desde ahí es medir desde nosotros mismos: la distancia al punto de
-  // enganche nunca crece por mucho que arrastres, y el nodo se queda pegado —
-  // sólo escaparía moviendo más de `radius` px en un único frame.
+  // Se reconstruye del PUNTERO, no de dónde está el nodo. Los dos renderizadores
+  // lo mueven de forma incompatible: LiteGraph suma deltas sobre la posición
+  // actual —así que conserva nuestra corrección—, mientras que la ruta Vue de
+  // Nodes 2.0 reescribe cada frame la posición absoluta desde el inicio del
+  // arrastre (`c.x + o.x`), borrando la corrección. Infiriendo la posición libre
+  // de las mutaciones, con Vue se resta una corrección que ya no está y el nodo
+  // entra en oscilación: tiembla y parece querer engancharse a varios sitios.
   //
-  // Restando la corrección anterior recuperamos el recorrido real del ratón, que
-  // es lo que hace que el imán se sienta elástico: agarra dentro del radio y
-  // suelta en cuanto de verdad te alejas.
+  // El recorrido del puntero es la intención del usuario y vale igual en ambos.
+  const scale = canvas.ds?.scale || 1
   const free = {
-    x: dragRect.x - session.applied.x,
-    y: dragRect.y - session.applied.y,
+    x: session.originRect.x + (_pointer.x - session.originPointer.x) / scale,
+    y: session.originRect.y + (_pointer.y - session.originPointer.y) / scale,
     w: dragRect.w,
     h: dragRect.h,
   }
@@ -298,7 +313,6 @@ function applyMagnet(canvas, state) {
     for (const n of nodes) moveItem(n, moveX, moveY)
     canvas.setDirty(true, true)
   }
-  session.applied = { x: result.dx, y: result.dy }
 }
 
 function installGuideRenderer(state) {

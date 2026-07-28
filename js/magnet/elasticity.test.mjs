@@ -2,13 +2,18 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { computeSnap } from "./computeSnap.js"
 
-// Simula el bucle de frames del arrastre tal como lo hace dragAdapter:
-// LiteGraph suma el delta del ratón y el imán corrige encima.
+// Simula el bucle de frames de un arrastre: el renderizador mueve el nodo y el
+// imán corrige encima.
 //
 // Lo que se guarda aquí es que el imán mida desde la posición LIBRE —dónde
 // estaría el nodo sin imán— y no desde donde él mismo lo dejó. Midiendo desde
 // sí mismo la distancia al enganche nunca crece y el nodo se queda pegado
 // para siempre: sólo escaparía moviendo más de `radius` px en un solo frame.
+//
+// En dragAdapter esa posición libre se reconstruye del recorrido del puntero,
+// no de dónde está el nodo, porque los dos renderizadores lo mueven de forma
+// incompatible: LiteGraph suma deltas y conserva la corrección, mientras que la
+// ruta Vue reescribe la posición absoluta cada frame y la borra.
 const RADIUS = 60
 const OPTS = { radius: RADIUS, matchWidth: false, minWidth: 0 }
 const targets = {

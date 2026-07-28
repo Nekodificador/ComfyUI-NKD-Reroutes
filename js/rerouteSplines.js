@@ -736,6 +736,10 @@ function buildPanel(el) {
   _panelRefs.clear()
   _syncHooks.length = 0
 
+  // Which mode this DOM reflects — the external-sync listener compares against
+  // this, not state.mode, to decide whether a rebuild is needed.
+  const builtMode = state.mode
+
   // Cancel the previous settings-change listener so we never accumulate duplicates
   _settingsListenerAC?.abort()
   _settingsListenerAC = new AbortController()
@@ -977,6 +981,9 @@ function buildPanel(el) {
 
   const wrap = document.createElement("div")
   wrap.className = "nkd-panel"
+  // Attached up front: if anything below throws, the user still sees a partial
+  // panel (and a console error) instead of a silently blank sidebar.
+  el.appendChild(wrap)
 
   // — MODE —
   const secMode = makeSection("Mode")
@@ -1035,7 +1042,6 @@ function buildPanel(el) {
   // Advanced-only sections — early return for Simple keeps the panel minimal
   if (state.mode === "Simple") {
     wrap.appendChild(resetBtn)
-    el.appendChild(wrap)
     return
   }
 
@@ -1137,31 +1143,34 @@ function buildPanel(el) {
 
   wrap.appendChild(resetBtn)
 
-  el.appendChild(wrap)
-
   // ── External sync: reflect ComfyUI settings changes in the panel ─────────────
-  app.ui?.settings?.addEventListener?.("change", ({ detail }) => {
-    if (!detail?.key || !(detail.key in SETTING_ID_MAP)) return
-    const key = SETTING_ID_MAP[detail.key]
-    const newVal = detail.value ?? detail.newValue
-    if (newVal == null) return
-    // Mode flips reshape the entire panel — rebuild instead of patching one ref.
-    if (key === "mode") {
-      if (state.mode !== newVal) { state.mode = newVal; buildPanel(el); redraw() }
-      return
-    }
-    const ref = _panelRefs.get(key)
-    if (!ref) return
-    if (ref.type === "slider") {
-      ref.el.value = newVal
-      if (ref.valEl) ref.valEl.textContent = _fmtVal(Number(newVal))
-    } else if (ref.type === "select") {
-      ref.el.value = newVal
-    } else if (ref.type === "checkbox") {
-      ref.el.checked = Boolean(newVal)
-      for (const hook of _syncHooks) hook()
-    }
-  }, { signal: _settingsListenerAC.signal })
+  // ComfyUI only dispatches per-setting "<id>.change" events (detail: {value,
+  // oldValue}). The generic "change" event this used to listen for is never
+  // fired, so subscribe to each id we care about individually.
+  for (const [settingId, key] of Object.entries(SETTING_ID_MAP)) {
+    app.ui?.settings?.addEventListener?.(`${settingId}.change`, ({ detail }) => {
+      const newVal = detail?.value
+      if (newVal == null) return
+      // Mode flips reshape the entire panel — rebuild instead of patching one ref.
+      // Compare against the mode this panel was *built* for: the setting's own
+      // onChange has already written state.mode by the time we get here.
+      if (key === "mode") {
+        if (builtMode !== newVal) { state.mode = newVal; buildPanel(el); redraw() }
+        return
+      }
+      const ref = _panelRefs.get(key)
+      if (!ref) return
+      if (ref.type === "slider") {
+        ref.el.value = newVal
+        if (ref.valEl) ref.valEl.textContent = _fmtVal(Number(newVal))
+      } else if (ref.type === "select") {
+        ref.el.value = newVal
+      } else if (ref.type === "checkbox") {
+        ref.el.checked = Boolean(newVal)
+        for (const hook of _syncHooks) hook()
+      }
+    }, { signal: _settingsListenerAC.signal })
+  }
 }
 
 // Sync all panel controls from current state (called after applyPreset or reset)

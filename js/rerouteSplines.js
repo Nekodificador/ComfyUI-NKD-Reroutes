@@ -200,31 +200,31 @@ app.registerExtension({
 // Defined at module scope so buildPanel can reuse tips as sidebar tooltips.
 
 const SLIDER_DEFS = [
-  { id: "WireCurvature",            key: "handleFactor",         label: "Wire Curvature",          tip: "How much wires curve between two points. Higher = rounder arcs, lower = straighter lines.", min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "NodeOutgoingPull",         key: "nodeOutFactor",        label: "Node Outgoing Pull",       tip: "Extra curvature multiplier for wires leaving a node's output socket.",                       min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "NodeIncomingPull",         key: "nodeInFactor",         label: "Node Incoming Pull",       tip: "Extra curvature multiplier for wires arriving at a node's input socket.",                    min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "RerouteOutgoingPull",      key: "rerouteOutFactor",     label: "Reroute Outgoing Pull",    tip: "Extra curvature multiplier for wires leaving a reroute dot.",                                min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "RerouteIncomingPull",      key: "rerouteInFactor",      label: "Reroute Incoming Pull",    tip: "Extra curvature multiplier for wires arriving at a reroute dot.",                            min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "BackwardWireClearanceMin", key: "pushOutMin",           label: "Backward Clearance Min",   tip: "Minimum backward wire clearance (px) at 90° (near-vertical wires). Acts as the floor when angle modulation reduces the push.",                                                                  min: 0,   max: 150,  step: 5    },
-  { id: "BackwardWireClearanceMax", key: "pushOutMax",           label: "Backward Clearance Max",   tip: "Maximum backward wire clearance (px) at 0°–45° (horizontal wires). The clearance smoothly interpolates down to Min as the wire approaches vertical.",                                           min: 0,   max: 200,  step: 5    },
-  { id: "RerouteDotSize",           key: "rerouteRadius",        label: "Reroute Dot Size",         tip: "Visual radius of the reroute dot in pixels. Minimum 3 to stay clickable.",                   min: 3,   max: 15,   step: 1    },
-  { id: "SocketMin",                key: "socketMin",            label: "Socket Offset Min",        tip: "Minimum Bézier handle offset (px) at the socket when nodes are very close horizontally.",    min: 3,   max: 50,   step: 1    },
-  { id: "SocketMax",                key: "socketMax",            label: "Socket Offset Max",        tip: "Maximum Bézier handle offset (px) at the socket when nodes are far apart horizontally.",     min: 10,  max: 200,  step: 5    },
-  { id: "StretchRef",               key: "stretchRef",           label: "Stretch Reference",        tip: "Horizontal distance (px) at which the socket offset reaches its maximum. Larger = the curve grows more gradually as nodes spread apart.",                                                       min: 50,  max: 1000, step: 50   },
-  { id: "NonLinear",                key: "nonLinear",            label: "Curvature Non-Linearity",  tip: "Amplifies the difference between short and long wires. Above 1.0 = short wires get tighter while long ones stay open. Below 1.0 = more uniform curvature across all distances.",               min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "InversionPull",            key: "inversionPull",        label: "Inversion Pull",           tip: "Base handle offset (px) for backward wires (output to the right of input). Controls the width of the 'C' loop without depending on node distance.",                                             min: 10,  max: 150,  step: 5    },
-  { id: "TailGrowth",                key: "tailGrowth",           label: "Long-distance growth",     tip: "Rate at which the wire curvature keeps growing beyond the Stretch Reference distance. 0 = flat after stretchRef; higher values maintain visible curves on very long connections.",          min: 0,   max: 0.3,  step: 0.01 },
-  { id: "VerticalTightness",         key: "verticalTightness",    label: "Vertical Tightness",       tip: "How much the wire straightens when nearly vertical. 0 = keeps its full curve even when vertical; 1 = collapses to a straight line. Acts as a single control replacing the old Damping Range and Curvature Floor sliders.", min: 0, max: 1.0, step: 0.05 },
-  { id: "VerticalEscapeScale",      key: "verticalEscapeScale",  label: "Vertical Escape",          tip: "Adds a vertical component to Bézier handles when a wire is nearly vertical, pulling it clear of the node body. 0 = no escape, 1 = maximum escape.",                                            min: 0,   max: 1.0,  step: 0.05 },
-  { id: "NodeBodyClearance",        key: "nodeBodyClearance",    label: "Node Body Clearance",      tip: "Minimum horizontal handle offset (px) when nodes are very close horizontally (dx < 80px). Prevents wires from hiding inside the node border.",                                                  min: 0,   max: 80,   step: 2    },
-  { id: "MagnetRadius", key: "magnetRadius", label: "Magnet Radius",         tip: "Distancia (px) a la que un nodo arrastrado empieza a imantarse a sus vecinos.",           min: 5, max: 60,  step: 1 },
-  { id: "MagnetGapY",   key: "magnetGapY",   label: "Magnet Gap Vertical",   tip: "Hueco (px) que deja el imán al apilar un nodo debajo de otro en la misma columna.",     min: 0, max: 60,  step: 2 },
-  { id: "MagnetGapX",   key: "magnetGapX",   label: "Magnet Gap Horizontal", tip: "Hueco (px) que deja el imán al adosar un nodo al lado de otro en la misma fila.",       min: 0, max: 120, step: 2 },
+  { id: "WireCurvature",            key: "handleFactor",         label: "Wire Curvature",          tip: "Overall roundness of every wire. Low = almost straight lines, high = wide sweeping curves.", min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "NodeOutgoingPull",         key: "nodeOutFactor",        label: "Node Outgoing Pull",       tip: "Extra roundness where a wire leaves a node's output. Higher = it bulges further out before heading to its target.", min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "NodeIncomingPull",         key: "nodeInFactor",         label: "Node Incoming Pull",       tip: "Extra roundness where a wire arrives at a node's input.",                                    min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "RerouteOutgoingPull",      key: "rerouteOutFactor",     label: "Reroute Outgoing Pull",    tip: "Same as Node Outgoing Pull, but for wires leaving a reroute dot.",                           min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "RerouteIncomingPull",      key: "rerouteInFactor",      label: "Reroute Incoming Pull",    tip: "Same as Node Incoming Pull, but for wires arriving at a reroute dot.",                       min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "BackwardWireClearanceMin", key: "pushOutMin",           label: "Backward Clearance Min",   tip: "How far a backward wire (target node sitting to the LEFT of the source) is pushed sideways when the two nodes are stacked almost vertically. This is the smallest push it will ever get.",   min: 0,   max: 150,  step: 5    },
+  { id: "BackwardWireClearanceMax", key: "pushOutMax",           label: "Backward Clearance Max",   tip: "How far a backward wire is pushed sideways when it runs mostly horizontal. Between horizontal and vertical the push blends smoothly down to the Min value.",                                min: 0,   max: 200,  step: 5    },
+  { id: "RerouteDotSize",           key: "rerouteRadius",        label: "Reroute Dot Size",         tip: "How big the reroute dot looks on screen. It never goes below 3 so it stays easy to click.", min: 3,   max: 15,   step: 1    },
+  { id: "SocketMin",                key: "socketMin",            label: "Socket Offset Min",        tip: "How far the curve reaches out of the socket when the two nodes are close together.",         min: 3,   max: 50,   step: 1    },
+  { id: "SocketMax",                key: "socketMax",            label: "Socket Offset Max",        tip: "How far the curve reaches out of the socket when the two nodes are far apart.",              min: 10,  max: 200,  step: 5    },
+  { id: "StretchRef",               key: "stretchRef",           label: "Stretch Reference",        tip: "Distance between nodes at which the curve reaches Socket Offset Max. Larger = curves open up more gradually as you pull nodes apart.",                                                        min: 50,  max: 1000, step: 50   },
+  { id: "NonLinear",                key: "nonLinear",            label: "Curvature Non-Linearity",  tip: "Makes short and long wires look more different from each other. Above 1.0 = short wires get tighter while long ones stay open. Below 1.0 = every wire curves about the same.",                min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "InversionPull",            key: "inversionPull",        label: "Inversion Pull",           tip: "How wide the 'C' loop is when a wire has to travel backwards (target node to the LEFT of the source). Stays the same no matter how far apart the nodes are.",                                 min: 10,  max: 150,  step: 5    },
+  { id: "TailGrowth",                key: "tailGrowth",           label: "Long-distance growth",     tip: "Keeps very long wires curving instead of going flat. 0 = they stop growing once past the Stretch Reference distance.",                                                                    min: 0,   max: 0.3,  step: 0.01 },
+  { id: "VerticalTightness",         key: "verticalTightness",    label: "Vertical Tightness",       tip: "How straight a wire becomes when it runs almost vertically. 0 = it keeps its full curve, 1 = it collapses into a straight line.",                                                          min: 0, max: 1.0, step: 0.05 },
+  { id: "VerticalEscapeScale",      key: "verticalEscapeScale",  label: "Vertical Escape",          tip: "Pushes near-vertical wires up or down, away from the node body, so they don't disappear behind it. 0 = off, 1 = maximum.",                                                                   min: 0,   max: 1.0,  step: 0.05 },
+  { id: "NodeBodyClearance",        key: "nodeBodyClearance",    label: "Node Body Clearance",      tip: "Keeps a minimum amount of curve when two nodes sit almost on top of each other, so the wire doesn't vanish into the node's edge.",                                                           min: 0,   max: 80,   step: 2    },
+  { id: "MagnetRadius", key: "magnetRadius", label: "Magnet Radius",         tip: "How close you have to drag a node before it snaps onto a neighbour.",              min: 5, max: 60,  step: 1 },
+  { id: "MagnetGapY",   key: "magnetGapY",   label: "Magnet Vertical Gap",   tip: "Space left between nodes when one snaps below another in the same column.",        min: 0, max: 60,  step: 2 },
+  { id: "MagnetGapX",   key: "magnetGapX",   label: "Magnet Horizontal Gap", tip: "Space left between nodes when one snaps beside another in the same row.",          min: 0, max: 120, step: 2 },
 ]
 
 const COMBO_DEFS = [
-  { id: "NodeBackwardsCrossing",    key: "crossingBehaviorNodes",    label: "Node Backward Crossing",   tip: "What happens when a wire goes left (backwards) from a node. 'Natural Loop' lets it arc freely; 'Hard Push Out' forces a fixed horizontal push to keep it readable." },
-  { id: "RerouteBackwardsCrossing", key: "crossingBehaviorReroutes", label: "Reroute Backward Crossing", tip: "Same as above, but for wires going backwards from a reroute dot." },
+  { id: "NodeBackwardsCrossing",    key: "crossingBehaviorNodes",    label: "Node Backward Crossing",   tip: "How a wire behaves when it has to travel backwards, i.e. the target node sits to the LEFT of the source. 'Natural Loop' lets it arc around freely; 'Hard Push Out' always steps it out a fixed amount first, which looks tidier." },
+  { id: "RerouteBackwardsCrossing", key: "crossingBehaviorReroutes", label: "Reroute Backward Crossing", tip: "Same as above, but for wires travelling backwards from a reroute dot." },
 ]
 
 // Quick lookup: stateKey → tip (for sidebar tooltips)
@@ -292,7 +292,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.Preset",
     name:         "Wire Style Preset",
-    tooltip:      "Quick preset that configures all tension and crossing settings at once. Individual sliders below still work for fine-tuning after choosing a preset.",
+    tooltip:      "Sets every wire setting at once. Pick one as a starting point, then fine-tune with the sliders below.",
     type:         "combo",
     options:      ["Custom", ...Object.keys(PRESETS)],
     defaultValue: "Custom",
@@ -763,9 +763,35 @@ function registerSidebarPanel() {
 }
 
 // Format a numeric state value for display next to a slider
-function _fmtVal(v) {
-  if (typeof v !== "number") return String(v)
-  return Number.isInteger(v) ? String(v) : v.toFixed(1)
+function _fmtVal(v, dec = 1) {
+  if (typeof v !== "number" || Number.isNaN(v)) return String(v)
+  const s = v.toFixed(dec)
+  return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s
+}
+
+// Largest "round" value (1/2/5 × 10^k) that doesn't exceed x.
+function niceBelow(x) {
+  const mag = Math.pow(10, Math.floor(Math.log10(x)))
+  return [5, 2, 1].map(m => m * mag).find(s => s <= x) ?? mag
+}
+
+// Free drag granularity: the declared `step` is what the value *means* (0.1 for a
+// factor, 50px for a distance), but in a ~110px sidebar that's only ~20 stops and
+// the thumb visibly jumps. Aim for ~100 stops. Integer sliders stay integer.
+function fineStep(min, max, step) {
+  if (Number.isInteger(step)) return 1
+  return Math.min(niceBelow((max - min) / 100), step)
+}
+
+// Shift drag: snap to numbers a human would actually pick, scaled to the slider's
+// own units — ~10 stops across the range. A 0.1–2.0 factor lands on 0.1 / 0.2,
+// a 10–200 px distance on 10 / 20, a 50–1000 px one on 50 / 100.
+function coarseStep(min, max) {
+  return niceBelow((max - min) / 10)
+}
+
+function decimalsOf(step) {
+  return (String(step).split(".")[1] || "").length
 }
 
 function buildPanel(el) {
@@ -839,11 +865,25 @@ function buildPanel(el) {
 }
 .nkd-panel-slider { flex: 1; min-width: 0; accent-color: var(--nkd-accent); cursor: pointer; }
 .nkd-panel-value {
-  flex: 0 0 34px;
+  flex: 0 0 44px;
+  min-width: 0;
   text-align: right;
+  font: inherit;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   opacity: 0.65;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 1px 3px;
+}
+.nkd-panel-value:hover { border-color: var(--border-color, #444); opacity: 0.9; }
+.nkd-panel-value:focus {
+  outline: none;
+  opacity: 1;
+  border-color: var(--nkd-accent);
+  background: var(--comfy-input-bg, #1a1a1a);
 }
 .nkd-panel-select {
   flex: 1;
@@ -910,11 +950,12 @@ function buildPanel(el) {
 
   const _persistTimers = new Map()
 
-  function setSetting(key, value) {
+  function setSetting(key, value, persist = true) {
     state[key] = value
     redraw()
-    // Debounce persistence — avoids hammering localStorage on every pointermove pixel
-    const id = _stateKeyToSettingId[key]
+    // Debounce persistence — setSettingValue round-trips to the server, so during a
+    // drag we skip it entirely (persist=false) and flush once on pointerup.
+    const id = persist ? _stateKeyToSettingId[key] : null
     if (id) {
       clearTimeout(_persistTimers.get(key))
       _persistTimers.set(key, setTimeout(() => {
@@ -945,51 +986,87 @@ function buildPanel(el) {
   }
 
   function makeSlider(key, label, min, max, step) {
+    const fine   = fineStep(min, max, step)
+    const coarse = coarseStep(min, max)
+    const dec    = decimalsOf(fine)
     const row = document.createElement("div")
     row.className = "nkd-panel-row"
     const lbl = document.createElement("span")
     lbl.className = "nkd-panel-label"
     lbl.textContent = label
-    if (TIPS[key]) { lbl.title = TIPS[key]; row.title = TIPS[key] }
+    if (TIPS[key]) {
+      const tip = `${TIPS[key]}\n\nHold Shift while dragging to snap in steps of ${_fmtVal(coarse, decimalsOf(coarse))}.`
+      lbl.title = tip
+      row.title = tip
+    }
     const inp = document.createElement("input")
     inp.type = "range"
     inp.className = "nkd-panel-slider"
-    inp.min = min; inp.max = max; inp.step = step
+    inp.min = min; inp.max = max; inp.step = fine
     inp.value = getSetting(key)
-    const valSpan = document.createElement("span")
-    valSpan.className = "nkd-panel-value"
-    valSpan.textContent = _fmtVal(Number(inp.value))
+    // Editable number: type an exact value instead of hunting for it with the thumb.
+    const valInp = document.createElement("input")
+    valInp.type = "text"
+    valInp.inputMode = "decimal"
+    valInp.className = "nkd-panel-value"
+    valInp.title = `Type an exact value (${min} – ${max})`
+    valInp.value = _fmtVal(Number(inp.value), dec)
+
+    // Snapped to absolute multiples of the step, not to offsets from min, so Shift
+    // always lands on 0.2 / 40 / 500 rather than on min + 0.2.
+    function snap(raw, s) {
+      const v = Math.round(raw / s) * s
+      return parseFloat(Math.max(min, Math.min(max, v)).toFixed(10))
+    }
+
     // Custom drag: capture-phase document listeners beat LiteGraph's canvas handlers.
     // r is captured once at pointerdown — avoids width=0 if the browser transiently
     // changes the input layout when preventDefault() suppresses the native thumb.
     inp.addEventListener("pointerdown", e => {
       e.stopPropagation()
       e.preventDefault()
-      const min = Number(inp.min), max = Number(inp.max), step = Number(inp.step)
       const r = inp.getBoundingClientRect()  // frozen for the whole drag
-      function snap(raw) {
-        const s = Math.round((raw - min) / step) * step + min
-        return parseFloat(Math.max(min, Math.min(max, s)).toFixed(10))
-      }
-      function update(clientX) {
-        const v = snap(min + Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * (max - min))
+      function update(clientX, shift) {
+        const raw = min + Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * (max - min)
+        const v = snap(raw, shift ? coarse : fine)
         inp.value = v
-        valSpan.textContent = _fmtVal(v)
-        setSetting(key, v)
+        valInp.value = _fmtVal(v, dec)
+        setSetting(key, v, false)
         clearPreset()
       }
-      update(e.clientX)
-      const onMove = ev => { ev.stopPropagation(); update(ev.clientX) }
+      update(e.clientX, e.shiftKey)
+      const onMove = ev => { ev.stopPropagation(); update(ev.clientX, ev.shiftKey) }
       const onUp   = ev => {
         ev.stopPropagation()
         document.removeEventListener("pointermove", onMove, true)
         document.removeEventListener("pointerup",   onUp,   true)
+        setSetting(key, state[key])  // one persist per drag, on release
       }
       document.addEventListener("pointermove", onMove, true)
       document.addEventListener("pointerup",   onUp,   true)
     })
-    row.append(lbl, inp, valSpan)
-    _panelRefs.set(key, { el: inp, valEl: valSpan, type: "slider" })
+
+    function commitTyped() {
+      const raw = parseFloat(String(valInp.value).replace(",", "."))
+      if (Number.isNaN(raw)) { valInp.value = _fmtVal(state[key], dec); return }
+      const v = parseFloat(Math.max(min, Math.min(max, raw)).toFixed(dec))
+      inp.value = v
+      valInp.value = _fmtVal(v, dec)
+      setSetting(key, v)
+      clearPreset()
+    }
+    valInp.addEventListener("change", commitTyped)
+    valInp.addEventListener("focus", () => valInp.select())
+    valInp.addEventListener("pointerdown", e => e.stopPropagation())
+    // Comfy binds single-key canvas shortcuts globally — typing must not reach them
+    valInp.addEventListener("keydown", e => {
+      e.stopPropagation()
+      if (e.key === "Enter")  { commitTyped(); valInp.blur() }
+      if (e.key === "Escape") { valInp.value = _fmtVal(state[key], dec); valInp.blur() }
+    })
+
+    row.append(lbl, inp, valInp)
+    _panelRefs.set(key, { el: inp, valEl: valInp, dec, type: "slider" })
     return row
   }
 
@@ -1050,7 +1127,7 @@ function buildPanel(el) {
   const modeLbl = document.createElement("span")
   modeLbl.className = "nkd-panel-label"
   modeLbl.textContent = "Advanced mode"
-  modeRow.title = "Simple: only forces horizontal handles at reroute dots; node↔node wires render with Comfy's native style. Advanced: full control over the NKD tension engine."
+  modeRow.title = "Simple: only wires touching a reroute dot are restyled; every other wire keeps Comfy's normal look. Advanced: NKD draws all wires and every control below becomes available."
   const modeLabel = document.createElement("label")
   modeLabel.className = "nkd-panel-toggle-label"
   const modeCb = document.createElement("input")
@@ -1079,17 +1156,17 @@ function buildPanel(el) {
   wrap.appendChild(secDotTop)
 
   // — MAGNETISMO (visible en ambos modos: no tiene que ver con la tensión) —
-  const secMagnet = makeSection("Magnetismo")
-  secMagnet.appendChild(makeToggle("magnetEnabled", "Imantar con Shift",
-    "Al arrastrar con Shift pulsado, los nodos se alinean y se adosan a sus vecinos."))
+  const secMagnet = makeSection("Magnet")
+  secMagnet.appendChild(makeToggle("magnetEnabled", "Snap with Shift",
+    "Hold Shift while dragging a node and it lines up and sticks to its neighbours."))
   const magnetRows = [
-    makeSlider("magnetRadius", "Radio del imán", 5, 60, 1),
-    makeSlider("magnetGapY",   "Hueco vertical", 0, 60, 2),
-    makeSlider("magnetGapX",   "Hueco horizontal", 0, 120, 2),
-    makeToggle("magnetGuides", "Mostrar guías",
-      "Dibuja la silueta de destino y las líneas de referencia mientras el imán engancha."),
-    makeToggle("magnetMatchWidth", "Igualar ancho en columna",
-      "Al imantarse a una columna, el nodo adopta también su ancho. Nunca lo estrecha por debajo de su mínimo."),
+    makeSlider("magnetRadius", "Magnet radius", 5, 60, 1),
+    makeSlider("magnetGapY",   "Vertical gap", 0, 60, 2),
+    makeSlider("magnetGapX",   "Horizontal gap", 0, 120, 2),
+    makeToggle("magnetGuides", "Show guides",
+      "Draws a preview outline and alignment lines while a node is snapping into place."),
+    makeToggle("magnetMatchWidth", "Match column width",
+      "A node snapping into a column also takes that column's width. It never shrinks below its own minimum width."),
   ]
   magnetRows.forEach(r => secMagnet.appendChild(r))
 
@@ -1187,7 +1264,7 @@ function buildPanel(el) {
   const tLbl = document.createElement("span")
   tLbl.className = "nkd-panel-label"
   tLbl.textContent = "Invert on backward"
-  tRow.title = "When enabled, backward wires (output to the right of input) flip their handle direction to form a natural C-loop instead of crossing."
+  tRow.title = "When a wire has to travel backwards (target node to the LEFT of the source), curl it into a C-shaped loop instead of letting it cut straight across the nodes."
   const tLabel = document.createElement("label")
   tLabel.className = "nkd-panel-toggle-label"
   const tCb = document.createElement("input")
@@ -1245,7 +1322,7 @@ function buildPanel(el) {
       if (!ref) return
       if (ref.type === "slider") {
         ref.el.value = newVal
-        if (ref.valEl) ref.valEl.textContent = _fmtVal(Number(newVal))
+        if (ref.valEl) ref.valEl.value = _fmtVal(Number(newVal), ref.dec)
       } else if (ref.type === "select") {
         ref.el.value = newVal
       } else if (ref.type === "checkbox") {
@@ -1263,7 +1340,7 @@ function syncPanelFromState() {
     if (v === undefined) continue
     if (ref.type === "slider") {
       ref.el.value = v
-      if (ref.valEl) ref.valEl.textContent = _fmtVal(Number(v))
+      if (ref.valEl) ref.valEl.value = _fmtVal(Number(v), ref.dec)
     } else if (ref.type === "select") {
       ref.el.value = v
     } else if (ref.type === "checkbox") {

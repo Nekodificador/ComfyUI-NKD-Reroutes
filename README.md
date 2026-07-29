@@ -58,10 +58,21 @@ In the **NKD Wires** sidebar tab, visible in both Simple and Advanced modes.
 | Setting | Range | Default | Description |
 |---|---|---|---|
 | Magnet Radius | 5 – 60 px | 20 | How close a neighbour has to be before the magnet grabs. Larger values reach further but jump harder when they let go. |
-| Magnet Gap Vertical | 0 – 60 px | 12 | Gap left when stacking a node below another in the same column. |
-| Magnet Gap Horizontal | 0 – 120 px | 36 | Gap left when abutting a node beside another in the same row. |
+| Magnet Vertical Gap | 0 – 60 px | 12 | Gap left when stacking a node below another in the same column. |
+| Magnet Horizontal Gap | 0 – 120 px | 36 | Gap left when abutting a node beside another in the same row. |
 | Show guides | on/off | on | Draws the destination ghost and the reference lines while snapping. |
 | Match column width | on/off | on | Whether snapping into a column also adopts its width. |
+
+---
+
+## Using the Sidebar Sliders
+
+Every slider in the **NKD Wires** tab can be set three ways:
+
+- **Drag** for a smooth sweep — useful to find the look you want by eye.
+- **Shift + drag** to snap to round values, scaled to that slider's own units:
+  curvature lands on 0.1 / 0.2, a pixel distance on 10 / 20.
+- **Click the number** and type an exact value. Enter confirms, Escape cancels.
 
 ---
 

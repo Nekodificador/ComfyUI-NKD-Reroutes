@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-nkd-reroutes"
-version = "1.4.1"
+version = "1.5.0"
 description = "Blender-style Bézier wires for ComfyUI with configurable tension and crossing behavior, plus Shift-drag magnetism to tidy up your graph."
 license = "MIT"
 requires-python = ">=3.10"

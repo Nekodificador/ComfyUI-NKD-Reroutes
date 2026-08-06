@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js"
 import { computeSnap } from "./computeSnap.js"
-import { collectSnapTargets, isReroute, rectOf, unionRect } from "./snapTargets.js"
+import { collectResizeTargets, collectSnapTargets, isGroup, isReroute, rectOf, unionRect } from "./snapTargets.js"
 
 // Estado del arrastre en curso. El índice de candidatos se construye una sola
 // vez, en el primer frame en que el imán está activo, y se tira al soltar.
@@ -26,6 +26,11 @@ function commitWidth(state) {
 
   for (const n of session.nodes) {
     if (isReroute(n) || n.flags?.collapsed) continue   // un reroute no tiene ancho
+    if (isGroup(n)) {
+      // resize() ya recorta al mínimo del grupo por su cuenta.
+      n.resize(width, n.size[1])
+      continue
+    }
     const min = n.computeSize?.()?.[0] ?? 0
     if (width < min) continue          // nunca por debajo del mínimo del nodo
     n.setSize([width, n.size[1]])
@@ -64,6 +69,8 @@ function moveItem(item, dx, dy) {
   const x = item.pos[0] + dx
   const y = item.pos[1] + dy
   if (typeof item.setPos === "function") item.setPos(x, y)
+  // Un grupo tiene que arrastrar a sus hijos: escribirle `pos` los dejaría atrás.
+  else if (isGroup(item)) item.move(dx, dy)
   else item.pos = [x, y]
 }
 
@@ -98,10 +105,16 @@ function trackInput() {
   addEventListener("keydown", (e) => { if (e.key === "Shift") _shiftDown = true }, true)
   addEventListener("keyup",   (e) => { if (e.key === "Shift") _shiftDown = false }, true)
   // El puntero se rastrea siempre: es de donde sale la posición libre.
-  addEventListener("pointermove", (e) => { _pointer = { x: e.clientX, y: e.clientY } }, true)
+  addEventListener("pointermove", (e) => {
+    _pointer = { x: e.clientX, y: e.clientY }
+    // Basta con que Shift esté pulsado en algún momento del estirado: mirarlo al
+    // soltar es una carrera perdida, porque la tecla suele llegar antes.
+    if (_vueResize && _shiftDown) _vueResize.shift = true
+  }, true)
   addEventListener("pointerdown", (e) => {
     _pointer = { x: e.clientX, y: e.clientY }
     _pointerDown = true
+    _vueResize = detectVueResizeHandle(e)
     _rectAtDown = null
     _dragConfirmed = false
     // El cierre del arrastre anterior va aplazado un tick. Si empieza otro antes
@@ -185,6 +198,7 @@ function installFrameHook(state) {
   canvas.drawFrontCanvas = function () {
     if (shouldEngage(this, state)) runMagnetSafely(this, state, false)   // sólo calcular: mueve el release
     else if (cancelledMidDrag(state)) endSession(state, false)
+    runResizeMagnetSafely(this, state)
     return prev.apply(this, arguments)
   }
 }
@@ -220,6 +234,9 @@ function installDragListener(state) {
     const c = app.canvas
     if (shouldEngage(c, state)) runMagnetSafely(c, state, false)   // sólo calcular: mueve el release
     else if (cancelledMidDrag(state)) endSession(state, false)
+    // El redimensionado de grupos va por su cuenta: corrige el tamaño que
+    // litegraph acaba de escribir en este mismo evento.
+    runResizeMagnetSafely(c, state)
   })
 
   // El cierre va en window y en fase de CAPTURA: un pointerup despachado sobre
@@ -231,10 +248,16 @@ function installDragListener(state) {
   // LiteGraph ya ha terminado y una última pasada del imán sobrescribe la
   // rejilla, que es lo que queremos —cerca de un vecino manda el imán—.
   const finish = () => {
-    if (!session.active) return
+    _resizeGuides = []
+    const vue = _vueResize
+    _vueResize = null
+    if (!session.active && !vue) return
     setTimeout(() => {
-      if (!session.active) return
       const c = app.canvas
+      // Nodes 2.0 asienta el tamaño después de soltar, así que su enganche vive
+      // en este tick aplazado y no antes.
+      if (vue && state.magnetEnabled && vue.shift) finishVueResize(c, vue, state)
+      if (!session.active) return
       // Sin comprobar shiftDown a propósito. Si la sesión sigue viva es que el
       // usuario NO se echó atrás —soltar Shift la habría cerrado desde el
       // pointermove—, así que el imán tiene la última palabra. Comprobarlo aquí
@@ -327,6 +350,139 @@ function applyMagnet(canvas, state, move) {
   }
 }
 
+// ── Magnetismo al redimensionar por una esquina (nodos y grupos) ────────────
+//
+// Va por libre de la sesión de arrastre: aquí no se mueve nada, sólo cambia el
+// tamaño, y no hay que reconstruir posición libre alguna. Litegraph recalcula el
+// tamaño desde el puntero en CADA evento (absoluto, no acumulado), así que
+// corregirlo en vivo no acumula deriva: si alejas el ratón, el enganche suelta.
+let _resizeGuides = []
+
+// Redimensionado en Nodes 2.0.
+//
+// Ahí un nodo es un elemento DOM y el estirado lo lleva una ruta Vue propia:
+// `canvas.resizing_node` no se pone nunca y, mientras arrastras, el tamaño vive
+// sólo en variables CSS del elemento —`node.size` va rancio hasta que se
+// asienta—. Así que no hay nada que corregir en vivo: se apunta qué tirador
+// pulsaste y el imán da una sola pasada al soltar, igual que hace el arrastre.
+//
+// La esquina sale de la clase de cursor del tirador (`cursor-nw-resize`), que es
+// lo único del DOM que la nombra.
+const VUE_CORNER = /cursor-(se|ne|sw|nw)-resize/
+let _vueResize = null
+
+function detectVueResizeHandle(ev) {
+  const el = ev.target?.closest?.("[role='button']")
+  if (!el) return null
+  const cls = typeof el.className === "string" ? el.className : el.className?.baseVal || ""
+  const corner = VUE_CORNER.exec(cls)?.[1]
+  if (!corner) return null
+
+  const id = el.closest("[data-node-id]")?.dataset?.nodeId
+  const node = id != null ? app.canvas?.graph?.getNodeById?.(Number(id)) : null
+  return node ? { node, dir: corner.toUpperCase(), shift: _shiftDown } : null
+}
+
+// Qué se está estirando y por dónde. Un nodo se agarra por las cuatro esquinas
+// —la dirección la deja litegraph en el puntero—; un grupo, sólo por la inferior
+// derecha.
+function resizingItem(canvas) {
+  const node = canvas.resizing_node
+  if (node) return { item: node, dir: canvas.pointer?.resizeDirection || "SE" }
+  const group = canvas.resizingGroup
+  if (group) return { item: group, dir: "SE" }
+  return null
+}
+
+// Escribe el rectángulo ya enganchado. Cada especie guarda su tamaño a su
+// manera, y el rect de un nodo lleva la barra de título por delante de `pos`.
+function applyRect(item, r) {
+  if (isGroup(item)) {
+    item.pos = [r.x, r.y]
+    item.resize(r.w, r.h)     // resize() ya recorta al mínimo del grupo
+    return
+  }
+  // `size` de un nodo es sólo el cuerpo; el rect lleva además la barra de título.
+  const th = LiteGraph.NODE_TITLE_HEIGHT
+  if (typeof item.setPos === "function") item.setPos(r.x, r.y + th)
+  else item.pos = [r.x, r.y + th]
+  item.setSize([r.w, r.h - th])
+}
+
+// Pasada única al soltar el tirador de Nodes 2.0. Va en su propia transacción:
+// el estirado de Vue ya cerró la suya antes de que el tamaño llegara aquí.
+function finishVueResize(canvas, vue, state) {
+  if (!canvas?.graph || vue.node.graph !== canvas.graph) return
+  try {
+    canvas.graph.beforeChange()
+    snapResize(canvas, vue.node, vue.dir, state)
+  } catch (err) {
+    console.error("[NKD Reroutes] fallo del imán al redimensionar (Nodes 2.0):", err)
+  } finally {
+    canvas.graph.afterChange()
+  }
+}
+
+function runResizeMagnetSafely(canvas, state) {
+  try {
+    applyResizeMagnet(canvas, state)
+  } catch (err) {
+    console.error("[NKD Reroutes] fallo del imán al redimensionar:", err)
+    _resizeGuides = []
+  }
+}
+
+function applyResizeMagnet(canvas, state) {
+  const target = canvas && state.magnetEnabled && _shiftDown ? resizingItem(canvas) : null
+  if (!target) {
+    if (_resizeGuides.length) { _resizeGuides = []; canvas?.setDirty(true, true) }
+    return
+  }
+  _resizeGuides = snapResize(canvas, target.item, target.dir, state)
+}
+
+// Engancha el rectángulo del elemento que se está estirando y lo escribe.
+// Devuelve las guías del enganche (vacío si no ha enganchado nada).
+function snapResize(canvas, item, dir, state) {
+  const rect = rectOf(item)
+  const targets = collectResizeTargets(canvas.graph, item, {
+    gapX: state.magnetGapX,
+    gapY: state.magnetGapY,
+  }, dir)
+  const snap = computeSnap(rect, targets, {
+    radius:     state.magnetRadius,
+    matchWidth: false,
+    minWidth:   0,
+  })
+
+  if (!snap.dx && !snap.dy) return snap.guides
+
+  // Estirar por el lado oeste/norte mueve el borde: crece hacia dentro y hay que
+  // recolocar el origen. Por el este/sur basta con el tamaño.
+  const next = { ...rect }
+  if (snap.dx) {
+    if (dir.includes("W")) { next.x += snap.dx; next.w -= snap.dx }
+    else next.w += snap.dx
+  }
+  if (snap.dy) {
+    if (dir.includes("N")) { next.y += snap.dy; next.h -= snap.dy }
+    else next.h += snap.dy
+  }
+
+  // Nunca por debajo del mínimo del nodo: encogerlo más recortaría widgets.
+  // Se renuncia sólo al eje que se pasa, no al enganche entero.
+  // El alto mínimo que devuelve computeSize es el del cuerpo, sin barra de título.
+  const [minW, minH] = item.computeSize?.() ?? [0, 0]
+  const th = isGroup(item) ? 0 : LiteGraph.NODE_TITLE_HEIGHT
+  if (next.w < minW)      { next.x = rect.x; next.w = rect.w }
+  if (next.h - th < minH) { next.y = rect.y; next.h = rect.h }
+  if (next.x === rect.x && next.y === rect.y && next.w === rect.w && next.h === rect.h) return []
+
+  applyRect(item, next)
+  canvas.setDirty(true, true)
+  return snap.guides
+}
+
 function installGuideRenderer(state) {
   // Sobre la INSTANCIA, no sobre el prototipo: el core asigna aquí por instancia
   // (`canvas.onDrawForeground = ...` para el borde de selección) y una asignación
@@ -337,13 +493,18 @@ function installGuideRenderer(state) {
   const prev = canvas.onDrawForeground ?? LGraphCanvas.prototype.onDrawForeground
   canvas.onDrawForeground = function (ctx, visibleArea) {
     prev?.call(this, ctx, visibleArea)
-    if (!session.active || !state.magnetGuides || !session.result) return
+    if (!state.magnetGuides) return
 
     // Las guías y la silueta se dibujan por separado. Sólo los candidatos de
     // alineación llevan guía; los de adosado no. Un enganche que gane sólo por
     // apilado deja `guides` vacío y aun así mueve el nodo, así que salir aquí
     // dejaría ese caso sin ningún indicador.
-    const { guides, ghost } = session.result
+    //
+    // Al redimensionar un grupo no hay silueta —el grupo ya está estirado a su
+    // tamaño final— pero sí guía, que es lo que dice contra qué has cuadrado.
+    const active = session.active && session.result
+    const guides = active ? session.result.guides : _resizeGuides
+    const ghost  = active ? session.result.ghost  : null
     if (!guides.length && !ghost) return
 
     ctx.save()

@@ -9,6 +9,12 @@ export function isReroute(item) {
   return !!item && item.linkIds !== undefined && item.size === undefined
 }
 
+// Un grupo tampoco es un nodo: no tiene sockets ni barra de título aparte —su
+// rectángulo YA incluye la banda del título— y se mueve con move(), no setPos().
+export function isGroup(item) {
+  return !!item && typeof item.recomputeInsideNodes === "function"
+}
+
 // Rectángulo del nodo en coordenadas de grafo, barra de título incluida.
 // Derivado de pos/size en vez de getBounding() porque boundingRect sólo se
 // refresca al dibujar y durante el arrastre puede ir un frame por detrás.
@@ -16,6 +22,10 @@ export function rectOf(node) {
   // Un reroute se trata como rectángulo de tamaño cero: así `ref:"min"` apunta
   // al punto en sí y las alineaciones caen justo sobre el centro del dot.
   if (isReroute(node)) return { x: node.pos[0], y: node.pos[1], w: 0, h: 0 }
+
+  // El bounding de un grupo ya lleva dentro su banda de título: restarle
+  // NODE_TITLE_HEIGHT como a un nodo lo dejaría desplazado hacia arriba.
+  if (isGroup(node)) return { x: node.pos[0], y: node.pos[1], w: node.size[0], h: node.size[1] }
 
   const th = LiteGraph.NODE_TITLE_HEIGHT
   const x = node.pos[0]
@@ -230,6 +240,75 @@ function rerouteTargets(graph, draggedReroutes, draggedItems, out) {
   }
 }
 
+// Lo que viaja con el arrastre, no sólo lo seleccionado.
+//
+// Al arrastrar un grupo, sus hijos NO están en selectedItems —los mueve el
+// grupo— pero se mueven igual. Si emitieran candidatos, el grupo intentaría
+// imantarse a sus propias tripas y se quedaría clavado en el sitio.
+export function expandDragged(draggedItems) {
+  const out = new Set(draggedItems)
+  const stack = [...draggedItems]
+  while (stack.length) {
+    for (const child of stack.pop()?.children ?? []) {
+      if (out.has(child)) continue
+      out.add(child)
+      stack.push(child)
+    }
+  }
+  return out
+}
+
+// Candidatos para redimensionar por una esquina.
+//
+// Sólo se emiten para los DOS bordes que esa esquina mueve —"SE" mueve derecha e
+// inferior, "NW" izquierda y superior—, así que computeSnap devuelve el delta de
+// ese borde y el otro lado se queda clavado donde está. Un grupo sólo se estira
+// por la esquina inferior derecha; un nodo, por las cuatro.
+export function collectResizeTargets(graph, item, opts, dir = "SE") {
+  const out = { x: [], y: [] }
+  if (!graph) return out
+
+  // Los hijos de un grupo se estiran con él: no son referencia válida.
+  const skip = expandDragged(new Set([item]))
+
+  // Cada especie con la suya: un grupo se mide contra otros grupos, un nodo
+  // contra otros nodos. Mezclarlos llenaba el radio de bordes ajenos —los del
+  // contenido para el grupo, los del marco para el nodo— y ganaba cualquiera.
+  const rects = []
+  const neighbours = isGroup(item) ? (graph.groups || []) : (graph.nodes || [])
+  for (const n of neighbours) if (!skip.has(n)) rects.push(rectOf(n))
+
+  const west  = dir.includes("W")
+  const north = dir.includes("N")
+
+  for (const r of rects) {
+    const x1 = r.x + r.w
+    const y1 = r.y + r.h
+    const vline = (v) => ({ x1: v, y1: r.y - GUIDE_REACH, x2: v, y2: y1 + GUIDE_REACH })
+    const hline = (v) => ({ x1: r.x - GUIDE_REACH, y1: v, x2: x1 + GUIDE_REACH, y2: v })
+
+    // Igualar borde con borde: mismo ancho / mismo alto cuando el lado opuesto
+    // ya está alineado, que es el caso típico de dos grupos en fila.
+    // Y estirar hasta tocar al vecino, dejando el hueco de siempre.
+    if (west) {
+      out.x.push(mk({ ref: "min", value: r.x,  guide: vline(r.x) }))
+      out.x.push(mk({ ref: "min", value: x1 + opts.gapX }))
+    } else {
+      out.x.push(mk({ ref: "max", value: x1,   guide: vline(x1) }))
+      out.x.push(mk({ ref: "max", value: r.x - opts.gapX }))
+    }
+
+    if (north) {
+      out.y.push(mk({ ref: "min", value: r.y,  guide: hline(r.y) }))
+      out.y.push(mk({ ref: "min", value: y1 + opts.gapY }))
+    } else {
+      out.y.push(mk({ ref: "max", value: y1,   guide: hline(y1) }))
+      out.y.push(mk({ ref: "max", value: r.y - opts.gapY }))
+    }
+  }
+  return out
+}
+
 /**
  * @param {LGraph} graph
  * @param {Set} draggedItems    canvas.selectedItems
@@ -242,6 +321,7 @@ export function collectSnapTargets(graph, draggedItems, dragRect, opts) {
   if (!graph) return out
 
   const dragged = [...draggedItems]
+  const moving = expandDragged(draggedItems)
   const draggedReroutes = dragged.filter(isReroute)
 
   // Arrastrando sólo reroutes el juego cambia: un reroute no tiene bordes que
@@ -249,31 +329,43 @@ export function collectSnapTargets(graph, draggedItems, dragRect, opts) {
   // ruido —seis por nodo— en el que se perdería lo único que importa, que es
   // cuadrar el cable. Así que esa ruta lleva su propio índice.
   if (draggedReroutes.length && draggedReroutes.length === dragged.length) {
-    rerouteTargets(graph, draggedReroutes, draggedItems, out)
+    rerouteTargets(graph, draggedReroutes, moving, out)
     return out
   }
 
   const draggedNodes = dragged.filter(it => it?.isVirtualNode !== true && it?.inputs !== undefined)
   const columns = new Map()
 
-  for (const node of graph.nodes) {
-    if (draggedItems.has(node) || node.pinned) continue
-
-    const nRect = rectOf(node)
-    edgeTargets(nRect, !!node.flags?.collapsed, opts, out)
-
+  const addNeighbour = (rect, collapsed) => {
+    edgeTargets(rect, collapsed, opts, out)
     // agrupar por borde izquierdo (redondeado) para detectar columnas
     // Tolerancia de ~1 px: dos nodos colocados a mano casi nunca coinciden al
     // decimal, y para el ojo ya están en la misma columna.
-    const key = Math.round(nRect.x)
+    const key = Math.round(rect.x)
     if (!columns.has(key)) columns.set(key, [])
-    columns.get(key).push(nRect)
+    columns.get(key).push(rect)
+  }
+
+  // Cada especie se imanta con la suya: arrastrando grupos sólo cuentan los
+  // grupos, y arrastrando nodos sólo los nodos. Un grupo envuelve a sus nodos,
+  // así que mezclándolos sus bordes caen siempre dentro del radio del nodo que
+  // arrastras —y al revés— y el imán acaba enganchando donde no toca.
+  if (dragged.every(isGroup)) {
+    for (const group of graph.groups || []) {
+      if (moving.has(group) || group.pinned) continue
+      addNeighbour(rectOf(group), false)
+    }
+  } else {
+    for (const node of graph.nodes) {
+      if (moving.has(node) || node.pinned) continue
+      addNeighbour(rectOf(node), !!node.flags?.collapsed)
+    }
   }
 
   gapTargets(columns, dragRect, out)
 
   // Una vez, no por vecino: recorre los enlaces del nodo arrastrado, así que
   // encuentra su vecino en el cable sea nodo o reroute.
-  socketTargets(graph, draggedNodes, draggedItems, dragRect, out)
+  socketTargets(graph, draggedNodes, moving, dragRect, out)
   return out
 }

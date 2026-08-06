@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js"
 import { installMagnet } from "./magnet/dragAdapter.js"
+import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 
 // ─── NKD Reroutes — Rewritten v2.0 ──────────────────────────────────────────
 //
@@ -193,6 +194,7 @@ app.registerExtension({
     patchLiteGraph()
     registerSidebarPanel()
     installMagnet(state)
+    installShrinkOnLegacy()
   },
 })
 

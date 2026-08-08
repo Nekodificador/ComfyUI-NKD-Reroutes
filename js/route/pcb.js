@@ -14,6 +14,7 @@
 //      cambian de sitio sus cables: al resto se le sirve lo guardado. Así la
 //      vista previa ES el resultado, en vez de un parecido que se despega.
 
+import { nudgePass } from "./nudge.js"
 import { offsetStrand, route } from "./router.js"
 
 const STUB = 24         // rabito recto obligatorio al salir de un socket
@@ -35,6 +36,18 @@ let version = 0         // sube cada vez que cambia la disposición de los nodos
 let lastHash = ""
 let searchesThisFrame = 0
 
+// Cuánto cuesta atravesar un nodo, en veces lo que cuesta el aire libre. Es el
+// mando de "esquivar o no": en 1 atravesar sale igual de barato que rodear y el
+// cable va recto por debajo de todo; alto, lo rodea siempre. Contra el recargo
+// por codo (24 dentro del motor) sale la decisión de cuánto rodeo merece la
+// pena, que es lo que de verdad se está eligiendo.
+let avoidance = 8
+
+// Si el reparto de pasillos está encendido. Apagarlo es una preferencia
+// legítima: en grafos ordenados a mano, un cable que se aparta 8 px de donde lo
+// dejaste molesta más de lo que ayuda.
+let spreadOn = true
+
 // Extremos REALES de cada cable, apuntados según se dibujan.
 //
 // La alternativa es `getConnectionPos`, y miente: en los nodos altos de
@@ -50,8 +63,19 @@ let searchesThisFrame = 0
 const pins = new Map()  // id del cable -> { a, b }
 
 // Una vez por frame, antes de que se dibuje ningún cable.
-export function beginFrame(graph) {
+export function beginFrame(graph, cfg = {}) {
+  const esquivar = cfg.avoidance ?? avoidance
+  const separar  = cfg.spread ?? spreadOn
   searchesThisFrame = 0
+  // Cambiar cualquiera de los dos mandos cambia TODAS las rutas, así que
+  // invalida igual que si se hubieran movido los nodos. El reparto además se
+  // olvida de lo que había movido: si no, al apagarlo los cables se quedarían
+  // desplazados para siempre.
+  if (esquivar !== avoidance || separar !== spreadOn) {
+    avoidance = esquivar
+    if (separar !== spreadOn) { spreadOn = separar; nudgeMemo.clear() }
+    version++
+  }
   if (!graph?._nodes) return
   let hash = ""
   const rects = []
@@ -68,11 +92,69 @@ export function beginFrame(graph) {
     // redondear cualquier temblor del layout invalidaría todas las rutas.
     hash += `${r[0] | 0},${r[1] | 0},${r[2] | 0},${r[3] | 0};`
   }
-  if (hash === lastHash) return
-  lastHash = hash
-  obstacles = rects
-  version++
-  if (cache.size > CACHE_MAX) { cache.clear(); pins.clear() }
+  if (hash !== lastHash) {
+    lastHash = hash
+    obstacles = rects
+    version++
+    if (cache.size > CACHE_MAX) { cache.clear(); pins.clear() }
+  }
+  if (spreadOn) separarPasillos()
+}
+
+// Reparto de los pasillos compartidos, una vez por frame y sólo cuando hay algo
+// nuevo que repartir.
+//
+// Va aquí y no al calcular cada ruta porque es una decisión de CONJUNTO: para
+// saber si dos tramos se pisan hay que tenerlos todos delante, y las rutas se
+// calculan de una en una según se dibujan. De ahí que se asiente en un frame —
+// se reparte lo que se dibujó en el anterior—, que es justo lo que no se nota.
+// Lo que el reparto le movió a cada cable, por si hay que reutilizarlo.
+//
+// Al arrastrar un nodo sube la versión en cada frame y sus cables se recalculan
+// DESPUÉS de que el reparto haya pasado, así que nunca les alcanza: durante el
+// arrastre se juntaban otra vez en la misma columna y sólo se separaban al
+// soltar. El reparto no puede correr por cable —necesita verlos todos— pero su
+// resultado sí se puede reutilizar: mientras arrastras, la forma del cable
+// apenas cambia y la separación que se le calculó sigue valiendo. Al soltar,
+// la pasada de verdad la recalcula.
+const nudgeMemo = new Map()  // id del cable -> desplazamientos por vértice
+
+// Reaplica a una ruta recién calculada la separación que tenía la anterior.
+// Sólo si la forma coincide: distinto número de vértices es otra ruta, y
+// mover sus puntos a ciegas la rompería. Los extremos no se tocan nunca —
+// tienen que acabar en el socket.
+function reusarSeparacion(id, pts) {
+  const memo = nudgeMemo.get(id)
+  if (!memo || memo.length !== pts.length) return pts
+  const out = pts.map(p => [p[0], p[1]])
+  for (let i = 1; i < out.length - 1; i++) {
+    out[i][0] += memo[i][0]
+    out[i][1] += memo[i][1]
+  }
+  return out
+}
+
+let lastNudge = ""
+function separarPasillos() {
+  const vivas = []
+  let sello = "v" + version
+  for (const e of cache.values()) {
+    if (e.version !== version || !e.raw) continue
+    vivas.push(e)
+    sello += "|" + e.key
+  }
+  if (sello === lastNudge) return
+  lastNudge = sello
+  try {
+    nudgePass(vivas, obstacles)
+    // Apuntar lo que ha movido, para poder reutilizarlo mientras se arrastra.
+    for (const e of vivas) {
+      const id = e.key.split("|")[0]
+      nudgeMemo.set(id, e.pts.map((p, i) => [p[0] - e.raw[i][0], p[1] - e.raw[i][1]]))
+    }
+  } catch (err) {
+    console.warn("[NKD Reroutes] el reparto de pasillos falló", err)
+  }
 }
 
 // Reparto de carriles en un lado de un nodo.
@@ -297,6 +379,7 @@ export function routeFor(id, a, b, opts = {}) {
       startDir, endDir,
       obstacles,
       clearance: CLEARANCE,
+      blockedMult: avoidance,
       stubStart,
       stubEnd,
     })
@@ -315,8 +398,13 @@ export function routeFor(id, a, b, opts = {}) {
     origen = "emergencia"
   }
 
-  cache.set(key, { pts, version, origen, stubStart, stubEnd, a, b })
-  return pts
+  // `raw` es la ruta tal cual sale del cálculo; `pts` es lo que se dibuja, con
+  // la separación reutilizada encima. Tienen que ir separadas: la pasada de
+  // reparto rehace pts desde raw, y si raw ya viniera desplazada iría sumando
+  // desplazamiento sobre desplazamiento en cada frame.
+  const dibujo = reusarSeparacion(String(id), pts)
+  cache.set(key, { key, raw: pts, pts: dibujo, version, origen, stubStart, stubEnd, a, b })
+  return dibujo
 }
 
 // ── Cintas ──────────────────────────────────────────────────────────────────
@@ -366,7 +454,7 @@ function rawRoute(graph, ll) {
   const t = clearStub(e.b[0] - laneStub(graph, destino, true,  ll.target_slot), -1, e.a[1], e.b[1], e.a[0])
   return route({
     start: e.a, end: e.b, startDir: "right", endDir: "left",
-    obstacles, clearance: CLEARANCE,
+    obstacles, clearance: CLEARANCE, blockedMult: avoidance,
     stubStart: Math.abs(s - e.a[0]),
     stubEnd:   Math.abs(t - e.b[0]),
   })

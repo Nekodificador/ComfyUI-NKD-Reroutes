@@ -55,6 +55,7 @@ const SLIDER_DEFS = [
   { id: "BackwardStretch",          key: "backwardStretch",      label: "Backward Stretch",         tip: "How much the backward loop grows with distance. A neighbour further to the left and further down gets more curve, at the same rate whatever the angle — so the wire clears the socket instead of hugging the node.",                                                                                       min: 0,   max: 1.0,  step: 0.05 },
   { id: "MinHandle",                key: "minSplineOffset",      label: "Minimum Handle",           tip: "Hard floor for every handle. Too high and it swallows the curve: every wire ends up the same shape whatever its length.",                                                                                   min: 0,   max: 60,   step: 1    },
   { id: "CornerRadius",             key: "cornerRadius",         label: "PCB Corner Radius",        tip: "How rounded the right-angle corners are when PCB routing is on. 0 = sharp corners. Each corner is limited to half of its shortest side, so tight zig-zags stay clean instead of collapsing.", min: 0, max: 30, step: 1 },
+  { id: "NodeAvoidance",            key: "nodeAvoidance",        label: "PCB Node Avoidance",       tip: "How hard a wire tries to go around a node instead of passing under it, when PCB routing is on. Each detour costs corners, so this is really a trade: at 1 the wire ignores nodes and runs straight through, high values make it wrap around whatever is in the way.", min: 1, max: 20, step: 1 },
   { id: "StubLength",               key: "stubLength",           label: "Socket Stub",              tip: "Length of the straight tail every wire leaves the socket with before the curve starts. 0 = none, straight from the dot. On short wires it shrinks with the wire so the curve between the two tails never folds over itself.", min: 0, max: 60, step: 1 },
   { id: "InversionPull",            key: "inversionPull",        label: "Inversion Pull",           tip: "How wide the 'C' loop is when a wire has to travel backwards (target node to the LEFT of the source). Stays the same no matter how far apart the nodes are.",                                 min: 10,  max: 150,  step: 5    },
   { id: "NodeBodyClearance",        key: "nodeBodyClearance",    label: "Node Body Clearance",      tip: "Keeps a minimum amount of curve when two nodes sit almost on top of each other, so the wire doesn't vanish into the node's edge.",                                                           min: 0,   max: 80,   step: 2    },
@@ -114,6 +115,15 @@ function registerSettings() {
     type:         "hidden",
     defaultValue: false,
     onChange(v)  { state.pcbEnabled = Boolean(v); redraw() },
+  })
+
+  // --- Hidden: reparto de pasillos, persistido desde el panel ---
+  add({
+    id:           "NKD Reroutes.SpreadCorridors",
+    name:         "Spread shared corridors (managed by sidebar)",
+    type:         "hidden",
+    defaultValue: true,
+    onChange(v)  { state.spreadCorridors = Boolean(v); redraw() },
   })
 
   // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
@@ -609,7 +619,9 @@ function patchDrawConnections() {
     // cable. Va aquí y no dentro del ruteo de cada cable porque leer todos los
     // rectángulos del grafo por cable sería cuadrático.
     if (state.pcbEnabled) {
-      try { beginFrame(this.graph) } catch (err) {
+      try {
+        beginFrame(this.graph, { avoidance: state.nodeAvoidance, spread: state.spreadCorridors })
+      } catch (err) {
         console.warn("[NKD Reroutes] snapshot de obstáculos fallido", err)
       }
     }
@@ -1091,6 +1103,11 @@ function buildPanel(el) {
   if (state.pcbEnabled) {
     const secPcb = makeSection("PCB Routing")
     secPcb.appendChild(makeSlider("cornerRadius", "Corner radius", 0, 30, 1))
+    secPcb.appendChild(makeSlider("nodeAvoidance", "Node avoidance", 1, 20, 1))
+    secPcb.appendChild(makeToggle("spreadCorridors", "Spread shared lanes",
+      "When two unrelated wires end up running down the same corridor they are drawn on top of " +
+      "each other. This fans them out into parallel lanes. Turn it off to keep every wire exactly " +
+      "where the routing put it.", true))
     wrap.appendChild(secPcb)
   }
 

@@ -9,6 +9,8 @@ export const DEFAULTS = Object.freeze({
   mode:                     "Simple",
   pcbEnabled:               false,  // ruteo ortogonal en vez de Bézier
   cornerRadius:             8,      // redondeo de las esquinas del ruteo, en px
+  nodeAvoidance:            8,      // cuánto cuesta atravesar un nodo (1 = atravesar sale gratis)
+  spreadCorridors:          true,   // separar cables sin relación que comparten pasillo
   simpleRerouteOffset:      40,
   minSplineOffset:          10,
   handleFactor:             1.0,
@@ -41,7 +43,7 @@ export const DEFAULTS = Object.freeze({
 // pcbEnabled no es geometría de la curva: es ELEGIR RENDERIZADOR. Si entrase en
 // los presets, cargar un estilo de cable te sacaría del modo PCB sin pedirlo.
 const NO_ES_GEOMETRIA = new Set([
-  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius",
+  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors",
   "magnetEnabled", "magnetRadius", "magnetGapX", "magnetGapY",
   "magnetGuides", "magnetMatchWidth",
 ])
@@ -81,6 +83,8 @@ export const SETTING_ID_MAP = {
   "NKD Reroutes.Mode":                   "mode",
   "NKD Reroutes.PcbEnabled":             "pcbEnabled",
   "NKD Reroutes.CornerRadius":           "cornerRadius",
+  "NKD Reroutes.NodeAvoidance":          "nodeAvoidance",
+  "NKD Reroutes.SpreadCorridors":        "spreadCorridors",
   "NKD Reroutes.SimpleRerouteOffset":    "simpleRerouteOffset",
   "NKD Reroutes.WireCurvature":          "handleFactor",
   "NKD Reroutes.NodePull":               "nodeFactor",

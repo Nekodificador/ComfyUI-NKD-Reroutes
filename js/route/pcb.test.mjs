@@ -310,3 +310,109 @@ test("el codo no se escapa al principio cuando el destino pasa por detrás de ot
       `con el destino en x=${xDestino} el codo se fue al principio (x=${codo[0]})`)
   }
 })
+
+// El mando de esquivar es la relación entre lo que cuesta atravesar un nodo y
+// lo que cuesta cada codo del rodeo. En 1, atravesar sale igual de barato que
+// el aire libre y el cable va recto por debajo; alto, rodea.
+test("el mando de esquivar decide si el cable pasa por debajo o rodea", () => {
+  const enMedio = [300, -60, 200, 120]
+  const g = grafo(nodo(...enMedio))
+
+  beginFrame(g, { avoidance: 1 })
+  const recto = routeFor("esquiva1", [0, 0], [800, 0])
+  assert.ok(atraviesa(recto, enMedio),
+    `en 1 el cable debería pasar por debajo: ${JSON.stringify(recto)}`)
+
+  beginFrame(g, { avoidance: 8 })
+  const rodeo = routeFor("esquiva8", [0, 0], [800, 0])
+  assert.ok(!atraviesa(rodeo, enMedio),
+    `en 8 el cable debería rodear: ${JSON.stringify(rodeo)}`)
+})
+
+test("mover el mando invalida las rutas guardadas", () => {
+  const g = grafo(nodo(300, -60, 200, 120))
+  beginFrame(g, { avoidance: 8 })
+  const antes = routeFor("mando", [0, 0], [800, 0])
+  beginFrame(g, { avoidance: 1 })                      // mismo grafo, otro mando
+  const despues = routeFor("mando", [0, 0], [800, 0])
+  assert.notDeepEqual(despues, antes, "la ruta guardada no puede sobrevivir al cambio")
+})
+
+// ── Pasillos compartidos ────────────────────────────────────────────────────
+//
+// Ni los carriles ni las cintas cubren a dos cables SIN RELACIÓN que acaban
+// bajando por la misma columna: uno va de A a B y otro de C a D, no comparten
+// nodo ni par. Se dibujan uno encima de otro y parecen un solo cable.
+test("dos cables sin relación no comparten la misma columna", () => {
+  // Dos destinos a la misma x: los dos bajan por la columna de su rabito de
+  // llegada, que es la misma, y sus alturas se solapan.
+  const g = grafo(nodo(0, 900, 50, 50))
+  const columna = (pts) => pts.find((p, i) => i > 0 && i < pts.length - 1 &&
+    Math.abs(p[0] - pts[i + 1][0]) < 0.01)?.[0]
+
+  beginFrame(g)
+  routeFor("pasilloA", [0, 0], [500, 200])
+  routeFor("pasilloB", [0, 50], [500, 400])
+
+  // Segundo frame: el reparto trabaja sobre lo dibujado en el anterior.
+  beginFrame(g)
+  const a = routeFor("pasilloA", [0, 0], [500, 200])
+  const b = routeFor("pasilloB", [0, 50], [500, 400])
+
+  const ca = columna(a), cb = columna(b)
+  assert.ok(ca != null && cb != null, "los dos deberían tener un tramo vertical")
+  assert.ok(Math.abs(ca - cb) > 4,
+    `los dos bajan por la misma columna (${ca} y ${cb})`)
+  // Y siguen llegando a su socket.
+  assert.deepEqual(a.at(-1), [500, 200])
+  assert.deepEqual(b.at(-1), [500, 400])
+})
+
+// El reparto es una decisión de conjunto y corre una vez por frame, así que no
+// alcanza a los cables que se recalculan DESPUÉS —los del nodo que arrastras—.
+// Durante el arrastre se juntaban otra vez en la misma columna y sólo se
+// separaban al soltar. Se arregla reutilizando la separación de la forma
+// anterior, no repartiendo por cable.
+test("la separación aguanta mientras se arrastra", () => {
+  const columna = (pts) => pts.find((p, i) => i > 0 && i < pts.length - 1 &&
+    Math.abs(p[0] - pts[i + 1][0]) < 0.01)?.[0]
+  const escena = (extra) => ({
+    _nodes: [nodo(0, 900, 50, 50), ...(extra ? [nodo(0, 2000, 10, 10)] : [])],
+  })
+
+  beginFrame(escena())
+  routeFor("dragA", [0, 0], [500, 200])
+  routeFor("dragB", [0, 50], [500, 400])
+  beginFrame(escena())                       // aquí corre el reparto
+  const quietoA = columna(routeFor("dragA", [0, 0], [500, 200]))
+  const quietoB = columna(routeFor("dragB", [0, 50], [500, 400]))
+  assert.ok(Math.abs(quietoA - quietoB) > 4, "de partida tienen que estar separados")
+
+  // Arrastre: otro nodo se mueve (sube la versión) y los extremos cambian, así
+  // que estos dos se recalculan enteros.
+  beginFrame(escena(true))
+  const a = columna(routeFor("dragA", [0, 4], [500, 204], { pointerDown: true }))
+  const b = columna(routeFor("dragB", [0, 54], [500, 404], { pointerDown: true }))
+  assert.ok(Math.abs(a - b) > 4,
+    `arrastrando se han vuelto a juntar (${a} y ${b})`)
+})
+
+// Apagar el reparto no puede dejar los cables desplazados a medias: los
+// desplazamientos ya aplicados tienen que deshacerse.
+test("el reparto se puede apagar y los cables vuelven a su sitio", () => {
+  const g = grafo(nodo(0, 900, 50, 50))
+  const columna = (pts) => pts.find((p, i) => i > 0 && i < pts.length - 1 &&
+    Math.abs(p[0] - pts[i + 1][0]) < 0.01)?.[0]
+
+  beginFrame(g)
+  routeFor("offA", [0, 0], [500, 200]); routeFor("offB", [0, 50], [500, 400])
+  beginFrame(g)
+  const conA = columna(routeFor("offA", [0, 0], [500, 200]))
+  const conB = columna(routeFor("offB", [0, 50], [500, 400]))
+  assert.ok(Math.abs(conA - conB) > 4, "encendido tienen que ir separados")
+
+  beginFrame(g, { spread: false })
+  const sinA = columna(routeFor("offA", [0, 0], [500, 200]))
+  const sinB = columna(routeFor("offB", [0, 50], [500, 400]))
+  assert.equal(sinA, sinB, `apagado deberían compartir columna (${sinA} y ${sinB})`)
+})

@@ -7,6 +7,11 @@
 // fallos. Los comentarios originales se dejan como están; documentan casos
 // medidos que no se ven en el código.
 //
+// ÚNICO cambio sobre el original: BEND_COST y BLOCKED_MULT eran constantes y
+// ahora se pueden pasar por parámetro, con el mismo valor por defecto. Son las
+// dos mitades de una sola decisión —cuánto rodeo merece la pena antes de
+// atravesar un nodo— y el usuario querrá moverla.
+//
 // MIT License — Copyright (c) 2026 Vedran Aberle Tokić
 //
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,7 +47,7 @@ const DIR = {
   none: [1, 0]
 }
 
-export function route({ start, end, startDir = 'right', endDir = 'left', obstacles, clearance = 16, stubStart = 24, stubEnd = 24, enforceStart = false, enforceEnd = false }) {
+export function route({ start, end, startDir = 'right', endDir = 'left', obstacles, clearance = 16, stubStart = 24, stubEnd = 24, enforceStart = false, enforceEnd = false, bendCost = BEND_COST, blockedMult = BLOCKED_MULT }) {
   // Reroute ends (core passes CENTER -> 'none') are resolved by the registry to the
   // upstream's side before this call; the mapping here is only a fallback.
   const sv = DIR[startDir === 'none' ? 'right' : startDir] ?? DIR.right
@@ -91,7 +96,7 @@ export function route({ start, end, startDir = 'right', endDir = 'left', obstacl
   const si = [idx(X, sStub[0]), idx(Y, sStub[1])]
   const ei = [idx(X, eStub[0]), idx(Y, eStub[1])]
 
-  const path = astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd)
+  const path = astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd, bendCost, blockedMult)
   if (!path) return null
 
   // Waypoints: real endpoints, stubs, grid path. Collinear runs collapsed.
@@ -130,7 +135,7 @@ function clearV(x, ya, yb, rects) {
   return true
 }
 
-function astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd) {
+function astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd, bendCost, blockedMult) {
   const W = X.length, H = Y.length
   const id = (i, j) => j * W + i
   // State carries entry axis (0 h, 1 v, -1 start) for the bend penalty.
@@ -181,7 +186,7 @@ function astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd) {
       let mult = 1
       if (!free) {
         const overNode = nax === 0 ? !clearH(Y[j], X[i], X[ni], hard) : !clearV(X[i], Y[j], Y[nj], hard)
-        mult = overNode ? BLOCKED_MULT : SOFT_MULT
+        mult = overNode ? blockedMult : SOFT_MULT
       }
       // Vertical travel carries an epsilon surcharge so equal-cost bend placements
       // resolve identically for every link (horizontal-first). Without it, sibling
@@ -191,7 +196,7 @@ function astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd) {
       // always prices under descending early at the source -- without it the choice
       // fell to expansion order and single links ignored their entry lane.
       let cost = len * mult * (nax === 1 ? 1.0005 + Math.abs(X[i] - X[ei[0]]) * 1e-6 : 1)
-      if (axis !== -1 && axis !== nax) cost += BEND_COST
+      if (axis !== -1 && axis !== nax) cost += bendCost
       const nkey = id(ni, nj) * 4 + (nax + 1)
       const ng = base + cost
       if (ng < (g.get(nkey) ?? Infinity)) {

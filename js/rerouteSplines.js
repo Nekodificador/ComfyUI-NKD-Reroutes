@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js"
 import { installMagnet } from "./magnet/dragAdapter.js"
+import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
 import { beginFrame, emitRoute, routeFor } from "./route/pcb.js"
@@ -36,6 +37,7 @@ app.registerExtension({
     registerSidebarPanel()
     installMagnet(state)
     installShrinkOnLegacy()
+    installCollapseAnchor(state)
     installLabBridge()
   },
 })
@@ -116,6 +118,15 @@ function registerSettings() {
     type:         "hidden",
     defaultValue: false,
     onChange(v)  { state.pcbEnabled = Boolean(v); redraw() },
+  })
+
+  // --- Hidden: plegar sin mover los cables, persistido desde el panel ---
+  add({
+    id:           "NKD Reroutes.CollapseKeepsWire",
+    name:         "Keep wires in place when collapsing (managed by sidebar)",
+    type:         "hidden",
+    defaultValue: true,
+    onChange(v)  { state.collapseKeepsWire = Boolean(v) },
   })
 
   // --- Hidden: reparto de pasillos, persistido desde el panel ---
@@ -1116,6 +1127,15 @@ function buildPanel(el) {
       "where the routing put it.", true))
     wrap.appendChild(secPcb)
   }
+
+  // — NODOS (no depende del renderizador de cables: se ve siempre) —
+  const secNodes = makeSection("Nodes")
+  secNodes.appendChild(makeToggle("collapseKeepsWire", "Collapse keeps wires",
+    "Collapsing a node normally yanks its wires upwards, because a collapsed node is just its " +
+    "title bar. This shifts the node so its first socket stays exactly where it was — and puts it " +
+    "back when you expand it again. Classic canvas only: with Nodes 2.0 the sockets are placed " +
+    "by a different layout and this does not reach them.", true))
+  wrap.appendChild(secNodes)
 
   // — REROUTE DOT (always visible in both modes) —
   const secDotTop = makeSection("Reroute Dot")

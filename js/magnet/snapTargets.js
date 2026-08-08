@@ -333,7 +333,13 @@ export function collectSnapTargets(graph, draggedItems, dragRect, opts) {
     return out
   }
 
-  const draggedNodes = dragged.filter(it => it?.isVirtualNode !== true && it?.inputs !== undefined)
+  // Los nodos virtuales (Set/Get y demás nodos de sólo frontend) SÍ entran: son
+  // pastillas, pero tienen sockets y enlaces de verdad, así que cuadrar su
+  // socket con el vecino del cable es exactamente lo que uno quiere al colocar
+  // una variable. Excluirlos dejaba el imán enganchando por los bordes y nunca
+  // por el cable, que es lo que se sentía como que "no los detecta".
+  // Lo que filtra de verdad es `inputs`: grupos y reroutes no lo tienen.
+  const draggedNodes = dragged.filter(it => it?.inputs !== undefined)
   const columns = new Map()
 
   const addNeighbour = (rect, collapsed) => {

@@ -103,3 +103,37 @@ test("redimensionar ignora al propio grupo y a sus hijos", () => {
   const targets = collectResizeTargets(graphOf(g, child), g, OPTS)
   assert.deepEqual(targets, { x: [], y: [] })
 })
+
+// ── Nodos virtuales (Set/Get) ───────────────────────────────────────────────
+//
+// Son pastillas de sólo frontend, pero con sockets y enlaces de verdad. El
+// imán los excluía de la regla del socket, así que enganchaban por los bordes y
+// nunca por el cable — justo lo contrario de lo que uno quiere al colocar una
+// variable junto a la salida de la que cuelga.
+test("un nodo virtual cuadra su socket con el vecino del cable", () => {
+  const emisor = {
+    id: 1, pos: [0, 100], size: [200, 80], flags: {}, inputs: [], outputs: [{ links: [5] }],
+    getConnectionPos: () => [200, 140],
+  }
+  // La pastilla: virtual, un input conectado, y arrastrada doce píxeles por debajo.
+  const pastilla = {
+    id: 2, pos: [300, 142], size: [120, 26], flags: {}, isVirtualNode: true,
+    inputs: [{ link: 5 }], outputs: [],
+    getConnectionPos: () => [300, 152],
+  }
+  const graph = {
+    nodes: [emisor, pastilla], groups: [],
+    links: new Map([[5, { id: 5, origin_id: 1, origin_slot: 0, target_id: 2, target_slot: 0 }]]),
+    getNodeById: (id) => (id === 1 ? emisor : pastilla),
+    reroutes: new Map(),
+  }
+
+  const out = collectSnapTargets(graph, new Set([pastilla]), rectOf(pastilla), OPTS)
+  const socket = out.y.find(t => t.kind === "socket")
+  assert.ok(socket, "tiene que salir un objetivo de socket para el nodo virtual")
+  assert.equal(socket.value, 140, "y apuntar a la altura del socket del emisor")
+
+  // Y que el imán lo aplique: el socket sube de 152 a 140, doce píxeles, que
+  // caben dentro del radio.
+  assert.equal(computeSnap(rectOf(pastilla), out, SNAP).dy, -12)
+})

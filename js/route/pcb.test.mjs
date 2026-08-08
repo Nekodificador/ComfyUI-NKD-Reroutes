@@ -416,3 +416,125 @@ test("el reparto se puede apagar y los cables vuelven a su sitio", () => {
   const sinB = columna(routeFor("offB", [0, 50], [500, 400]))
   assert.equal(sinA, sinB, `apagado deberían compartir columna (${sinA} y ${sinB})`)
 })
+
+// Ojo: el módulo guarda la config entre llamadas, así que los tests que
+// dependen de ella la dicen entera en vez de heredar la que dejó el anterior.
+//
+// Las pastillas planas —Set/Get, nodos plegados— salían carísimas de cruzar sin
+// tapar nada: el recargo se paga por píxel cruzado, o sea por el ANCHO, y lo que
+// estorba es el ALTO. Medido: una de 120×24 mandaba un cable de 900 px a dar un
+// rodeo entero. Por eso el umbral va por altura.
+test("los nodos bajos dejan de mandar los cables de rodeo", () => {
+  const pastilla = [500, 190, 120, 24]
+  const escena = { _nodes: [{ pos: [500, 190], size: [120, 24] }] }
+
+  beginFrame(escena, { ignoreShorterThan: 0, avoidance: 8 })
+  const rodeo = routeFor("pastilla", [100, 200], [1000, 200])
+  assert.ok(!atraviesa(rodeo, pastilla), `contándola tiene que rodearla: ${JSON.stringify(rodeo)}`)
+  assert.ok(rodeo.length > 2, "y eso son codos")
+
+  beginFrame(escena, { ignoreShorterThan: 40, avoidance: 8 })
+  const recto = routeFor("pastilla", [100, 200], [1000, 200])
+  assert.deepEqual(recto, [[100, 200], [1000, 200]], "ignorándola, línea recta")
+})
+
+test("el umbral no se lleva por delante a los nodos de verdad", () => {
+  const grande = [500, 100, 200, 300]
+  beginFrame({ _nodes: [{ pos: [500, 100], size: [200, 300] }] }, { ignoreShorterThan: 40, avoidance: 8 })
+  const pts = routeFor("grande", [100, 200], [1000, 200])
+  assert.ok(!atraviesa(pts, grande), `un nodo alto tiene que seguir estorbando: ${JSON.stringify(pts)}`)
+})
+
+// Una pastilla no tiene cara: es un buzón, como un reroute. Sin esto, un cable
+// hacia una pastilla que queda a la izquierda tenía que salir por la derecha,
+// dar la vuelta entera y volver a entrar por la izquierda —la convención de que
+// una entrada mira a la izquierda—. En un nodo de verdad es correcto porque su
+// cuerpo está en medio; en una pastilla es una vuelta al mundo para nada.
+test("una pastilla se deja entrar por el lado por el que viene el cable", () => {
+  const grande = {
+    id: 1, pos: [215, 40], size: [230, 220],
+    outputs: [{ links: [7] }], inputs: [], getConnectionPos: () => [445, 125],
+  }
+  const pastilla = {
+    id: 2, pos: [210, 255], size: [120, 30],
+    inputs: [{ link: 7 }], outputs: [], getConnectionPos: () => [215, 270],
+  }
+  const links = new Map([[7, { id: 7, origin_id: 1, origin_slot: 0, target_id: 2, target_slot: 0 }]])
+  const g = {
+    _nodes: [grande, pastilla], _links: links,
+    getNodeById: (id) => (id === 1 ? grande : pastilla),
+  }
+  const opts = { graph: g, link: links.get(7) }
+  const largo = (p) => p.reduce((s, q, i) => i ? s + Math.abs(q[0] - p[i - 1][0]) + Math.abs(q[1] - p[i - 1][1]) : 0, 0)
+
+  beginFrame(g, { ignoreShorterThan: 0, avoidance: 8 })
+  const vuelta = routeFor("pastillaA", [445, 125], [215, 270], opts)
+  beginFrame(g, { ignoreShorterThan: 40, avoidance: 8 })
+  const directo = routeFor("pastillaB", [445, 125], [215, 270], opts)
+
+  // Tratada como nodo normal se pasa de largo por la IZQUIERDA del destino para
+  // poder entrar por su cara; tratada como pastilla, no.
+  assert.ok(Math.min(...vuelta.map(p => p[0])) < 215, "sin la regla se pasa de largo")
+  assert.equal(Math.min(...directo.map(p => p[0])), 215, "con la regla entra directo")
+  assert.ok(largo(directo) < largo(vuelta), `${largo(directo)} debería ser menor que ${largo(vuelta)}`)
+})
+
+// La cara elegida para una pastilla tiene que CUMPLIRSE a cualquier altura.
+//
+// Retroceder por el propio rabito es gratis en la rejilla del ruteo —mismo
+// carril, ningún codo—, así que el A* se doblaba sobre él y `simplify`
+// colapsaba el pliegue: el cable seguía entrando por el lado de siempre y el
+// cambio de cara no hacía nada. Sólo se notaba cuando la pastilla se separaba
+// en altura del socket, que es cuando el pliegue le salía a cuenta.
+test("la pastilla se entra por el mismo lado a cualquier altura", () => {
+  for (const dy of [10, 30, 60, 120, 240]) {
+    const py = 90 + dy
+    const grande = {
+      id: 1, pos: [200, 50], size: [240, 300],
+      outputs: [{ links: [7] }], inputs: [], getConnectionPos: () => [440, 90],
+    }
+    const pastilla = {
+      id: 2, pos: [210, py - 15], size: [120, 30],
+      inputs: [{ link: 7 }], outputs: [], getConnectionPos: () => [215, py],
+    }
+    const links = new Map([[7, { id: 7, origin_id: 1, origin_slot: 0, target_id: 2, target_slot: 0 }]])
+    const g = {
+      _nodes: [grande, pastilla], _links: links,
+      getNodeById: (id) => (id === 1 ? grande : pastilla),
+    }
+    beginFrame(g, { ignoreShorterThan: 40, avoidance: 8 })
+    const pts = routeFor("altura" + dy, [440, 90], [215, py], { graph: g, link: links.get(7) })
+    // El destino queda a la izquierda, así que entra por la DERECHA: el punto
+    // anterior al socket tiene que estar a su derecha, nunca a su izquierda.
+    assert.ok(pts.at(-2)[0] > 215,
+      `con dy=${dy} entra por el lado equivocado: ${JSON.stringify(pts)}`)
+  }
+})
+
+// Arrastrar una pastilla no puede ir apartando su cable cada vez más.
+//
+// Los nodos bajo el umbral no entran en el hash —moverlos no invalida nada, que
+// es lo que queremos—, pero los extremos de sus cables sí cambian: cada frame
+// nace una entrada nueva y la anterior se queda con la versión buena,
+// indistinguible de una ruta de verdad. El reparto de pasillos apartaba el cable
+// nuevo del rastro de todas las posiciones anteriores, así que cuanto más
+// arrastrabas más lejos se iba, sin límite. Lo corta marcar en qué frame se usó
+// cada ruta por última vez.
+test("arrastrar una pastilla no manda su cable al infinito", () => {
+  const escena = (py) => ({
+    _nodes: [nodo(400, 100, 300, 400), nodo(100, py - 15, 120, 26)],
+  })
+  const columna = (p) => p.find((q, i) => i > 0 && i < p.length - 1 &&
+    Math.abs(q[0] - p[i + 1][0]) < 0.01)?.[0]
+
+  let py = 600
+  const columnas = []
+  for (let f = 0; f < 12; f++) {
+    beginFrame(escena(py), { ignoreShorterThan: 40, avoidance: 8 })
+    columnas.push(columna(routeFor("arrastre", [380, 150], [105, py])))
+    py += 3
+  }
+  const min = Math.min(...columnas), max = Math.max(...columnas)
+  assert.ok(max - min <= 8,
+    `el cable se ha ido apartando ${max - min} px durante el arrastre: ${columnas.join(", ")}`)
+})

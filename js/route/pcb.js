@@ -35,6 +35,17 @@ let obstacles = []
 let version = 0         // sube cada vez que cambia la disposición de los nodos
 let lastHash = ""
 let searchesThisFrame = 0
+// Contador de frames. Cada ruta apunta en qué frame se usó por última vez, y
+// eso es lo que distingue una ruta VIVA de un fantasma.
+//
+// Hace falta porque la versión no basta: los nodos por debajo del umbral no
+// entran en el hash —moverlos no invalida nada, que es lo que queremos— pero
+// los extremos de sus cables sí cambian. Cada frame nace una entrada nueva y
+// la anterior se queda ahí, con la versión buena, indistinguible de una ruta
+// de verdad. Al arrastrar una pastilla se acumulaba el rastro de todas sus
+// posiciones y el reparto de pasillos apartaba el cable nuevo de todas ellas:
+// cuanto más movías, más lejos se iba. Sin límite.
+let tick = 0
 
 // Cuánto cuesta atravesar un nodo, en veces lo que cuesta el aire libre. Es el
 // mando de "esquivar o no": en 1 atravesar sale igual de barato que rodear y el
@@ -47,6 +58,15 @@ let avoidance = 8
 // legítima: en grafos ordenados a mano, un cable que se aparta 8 px de donde lo
 // dejaste molesta más de lo que ayuda.
 let spreadOn = true
+
+// Altura por debajo de la cual un nodo deja de estorbar a los cables.
+//
+// El recargo por atravesar se paga por PÍXEL CRUZADO, o sea por el ANCHO del
+// nodo — pero lo que estorba de verdad es el ALTO, que es lo que tapa. Una
+// pastilla ancha y plana (un Set/Get, un nodo plegado) sale carísima de cruzar
+// sin ocultar nada: medido, una de 120×24 en medio de un cable de 900 px le
+// hacía dar un rodeo entero. Por eso el umbral va por altura.
+let ignoreShorter = 40
 
 // Extremos REALES de cada cable, apuntados según se dibujan.
 //
@@ -64,15 +84,18 @@ const pins = new Map()  // id del cable -> { a, b }
 
 // Una vez por frame, antes de que se dibuje ningún cable.
 export function beginFrame(graph, cfg = {}) {
+  tick++
   const esquivar = cfg.avoidance ?? avoidance
   const separar  = cfg.spread ?? spreadOn
+  const minAlto  = cfg.ignoreShorterThan ?? ignoreShorter
   searchesThisFrame = 0
   // Cambiar cualquiera de los dos mandos cambia TODAS las rutas, así que
   // invalida igual que si se hubieran movido los nodos. El reparto además se
   // olvida de lo que había movido: si no, al apagarlo los cables se quedarían
   // desplazados para siempre.
-  if (esquivar !== avoidance || separar !== spreadOn) {
+  if (esquivar !== avoidance || separar !== spreadOn || minAlto !== ignoreShorter) {
     avoidance = esquivar
+    ignoreShorter = minAlto
     if (separar !== spreadOn) { spreadOn = separar; nudgeMemo.clear() }
     version++
   }
@@ -87,6 +110,9 @@ export function beginFrame(graph, cfg = {}) {
     // Un solo nodo raro no puede tumbar el snapshot: sin él se rutea igual, y
     // reventando aquí se queda sin rutear TODO el frame.
     if (!r) continue
+    // Los nodos bajos no entran ni en la lista ni en el hash: así, además,
+    // mover un Set/Get no obliga a recalcular las rutas de medio grafo.
+    if (ignoreShorter > 0 && r[3] < ignoreShorter) continue
     rects.push([r[0], r[1], r[2], r[3]])
     // Redondeado a entero: un nodo no se mueve medio píxel por su cuenta, y sin
     // redondear cualquier temblor del layout invalidaría todas las rutas.
@@ -140,6 +166,9 @@ function separarPasillos() {
   let sello = "v" + version
   for (const e of cache.values()) {
     if (e.version !== version || !e.raw) continue
+    // Servida en el frame anterior o en este. Lo que no se ha pedido para
+    // dibujar es un fantasma, aunque su versión siga valiendo.
+    if (e.tick < tick - 1) continue
     vivas.push(e)
     sello += "|" + e.key
   }
@@ -155,6 +184,22 @@ function separarPasillos() {
   } catch (err) {
     console.warn("[NKD Reroutes] el reparto de pasillos falló", err)
   }
+}
+
+// Un nodo por debajo del umbral no es un nodo de verdad para los cables: es una
+// pastilla —un Set/Get, un plegado—. Además de no estorbar como obstáculo,
+// TAMPOCO TIENE CARA: el cable puede entrar y salir por el lado que le venga
+// bien, como en un reroute.
+//
+// Sin esto, un cable hacia una pastilla que está a la izquierda tenía que
+// salir por la derecha, dar la vuelta entera y volver a entrar por la izquierda
+// —la convención de que una entrada mira a la izquierda—. En un nodo de verdad
+// eso es correcto, porque su cuerpo está en medio. En una pastilla es una vuelta
+// al mundo para nada.
+function esPastilla(node) {
+  if (ignoreShorter <= 0 || !node) return false
+  const alto = node.boundingRect?.[3] ?? node.size?.[1]
+  return alto != null && alto < ignoreShorter
 }
 
 // Reparto de carriles en un lado de un nodo.
@@ -300,11 +345,16 @@ export function routeFor(id, a, b, opts = {}) {
     pins.set(link.id, { a: [a[0], a[1]], b: [b[0], b[1]] })
   }
 
-  // Un reroute no tiene cara: el cable lo cruza. Se le da la dirección del
-  // propio tramo para que entre y salga por donde va, en vez de forzarle la
-  // convención de socket y hacerle dar la vuelta al punto.
-  const startDir = startIsReroute ? (b[0] >= a[0] ? "right" : "left")  : "right"
-  const endDir   = endIsReroute   ? (b[0] >= a[0] ? "left"  : "right") : "left"
+  // Ni un reroute ni una pastilla tienen cara: el cable entra y sale por donde
+  // va, en vez de tragarse la convención del socket y dar la vuelta al punto.
+  // Las pastillas van aparte de los reroutes porque su cara elegida hay que
+  // hacerla CUMPLIR (ver abajo), y la de un reroute no.
+  const salidaPastilla  = Boolean(graph && link && esPastilla(graph.getNodeById?.(link.origin_id)))
+  const entradaPastilla = Boolean(graph && link && esPastilla(graph.getNodeById?.(link.target_id)))
+  const salidaLibre  = startIsReroute || salidaPastilla
+  const entradaLibre = endIsReroute   || entradaPastilla
+  const startDir = salidaLibre  ? (b[0] >= a[0] ? "right" : "left")  : "right"
+  const endDir   = entradaLibre ? (b[0] >= a[0] ? "left"  : "right") : "left"
 
   // Los carriles son de los lados de NODO. Un extremo en reroute se lleva el
   // rabito de siempre: los sockets que guarda el cable son los de la CADENA
@@ -331,7 +381,7 @@ export function routeFor(id, a, b, opts = {}) {
 
   const key = `${id}|${a[0] | 0},${a[1] | 0}|${b[0] | 0},${b[1] | 0}|${startDir}>${endDir}|${stubStart},${stubEnd}`
   const hit = cache.get(key)
-  if (hit && hit.version === version) return hit.pts
+  if (hit && hit.version === version) { hit.tick = tick; return hit.pts }
 
   // Mitad de un arrastre.
   //
@@ -347,7 +397,7 @@ export function routeFor(id, a, b, opts = {}) {
   // parecido es perseguirse la cola; la preview tiene que SER el resultado.
   if (pointerDown) {
     const viejo = cache.get(key)
-    if (viejo) return viejo.pts
+    if (viejo) { viejo.tick = tick; return viejo.pts }
     // Tope de seguridad: arrastrar un nodo con muchísimos cables no puede
     // convertirse en cien búsquedas por frame. Pasado el tope, apaño barato —
     // feo un instante, pero el canvas responde.
@@ -382,6 +432,15 @@ export function routeFor(id, a, b, opts = {}) {
       blockedMult: avoidance,
       stubStart,
       stubEnd,
+      // La cara elegida para una pastilla es VINCULANTE, no decorativa.
+      // Retroceder por el propio rabito es gratis en esta rejilla —mismo
+      // carril, ningún codo—, así que el A* se doblaba sobre él y `simplify`
+      // colapsaba el pliegue: el cable seguía entrando por el lado de siempre y
+      // el cambio de cara parecía no hacer nada. Sólo para pastillas: en un
+      // socket de nodo ese pliegue es útil y prohibirlo estropea los cables
+      // cortos entre nodos pegados.
+      enforceStart: salidaPastilla,
+      enforceEnd:   entradaPastilla,
     })
   } catch (err) {
     // Una excepción escapando de aquí sube hasta el bucle de dibujado de
@@ -403,7 +462,7 @@ export function routeFor(id, a, b, opts = {}) {
   // reparto rehace pts desde raw, y si raw ya viniera desplazada iría sumando
   // desplazamiento sobre desplazamiento en cada frame.
   const dibujo = reusarSeparacion(String(id), pts)
-  cache.set(key, { key, raw: pts, pts: dibujo, version, origen, stubStart, stubEnd, a, b })
+  cache.set(key, { key, raw: pts, pts: dibujo, version, tick, origen, stubStart, stubEnd, a, b })
   return dibujo
 }
 

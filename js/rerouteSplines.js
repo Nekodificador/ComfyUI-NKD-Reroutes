@@ -1,6 +1,9 @@
 import { app } from "../../scripts/app.js"
 import { installMagnet } from "./magnet/dragAdapter.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
+import { computeTension } from "./spline/tension.js"
+import { beginFrame, emitRoute, routeFor } from "./route/pcb.js"
+import { DEFAULTS, PRESETS, PRESET_KEYS, SETTING_ID_MAP } from "./spline/config.js"
 
 // ─── NKD Reroutes — Rewritten v2.0 ──────────────────────────────────────────
 //
@@ -16,174 +19,12 @@ import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Defaults & State ────────────────────────────────────────────────────────
-
-const DEFAULTS = Object.freeze({
-  mode:                     "Simple",
-  simpleRerouteOffset:      40,
-  minSplineOffset:          25,
-  maxSplineOffset:          9999,
-  handleFactor:             0.5,
-  nodeOutFactor:            0.5,
-  nodeInFactor:             0.5,
-  rerouteOutFactor:         0.5,
-  rerouteInFactor:          0.5,
-  rerouteRadius:            5,
-  crossingBehaviorNodes:    "Natural Loop",
-  crossingBehaviorReroutes: "Natural Loop",
-  pushOutMin:               0,
-  pushOutMax:               50,
-  socketMin:                10,
-  socketMax:                40,
-  stretchRef:               300,
-  nonLinear:                1.0,
-  inversionPull:            40,
-  invertBackward:           true,
-  tailGrowth:               0.08,
-  verticalTightness:        0.5,
-  verticalEscapeScale:      0.4,
-  nodeBodyClearance:        24,
-  magnetEnabled:            true,
-  magnetRadius:             20,
-  magnetGapX:               36,
-  magnetGapY:               12,
-  magnetGuides:             true,
-  magnetMatchWidth:         true,
-})
+// DEFAULTS, PRESETS y SETTING_ID_MAP viven en ./spline/config.js: el
+// laboratorio (js/lab.html) importa exactamente lo mismo, así que no hay dos
+// copias que se separen.
 
 // Live mutable state — always reflects current user config
 const state = { ...DEFAULTS }
-
-// ─── Presets ─────────────────────────────────────────────────────────────────
-
-const PRESETS = {
-  "Clean & Tight": {
-    handleFactor:             0.35,
-    nodeOutFactor:            0.8,
-    nodeInFactor:             0.8,
-    rerouteOutFactor:         0.8,
-    rerouteInFactor:          0.8,
-    crossingBehaviorNodes:    "Hard Push Out",
-    crossingBehaviorReroutes: "Hard Push Out",
-    pushOutMin:               20,
-    pushOutMax:               60,
-    rerouteRadius:            4,
-    socketMin:                8,
-    socketMax:                25,
-    stretchRef:               200,
-    nonLinear:                1.2,
-    inversionPull:            30,
-    invertBackward:           true,
-    tailGrowth:               0.06,
-    verticalTightness:        1.0,
-    verticalEscapeScale:      0.3,
-    nodeBodyClearance:        20,
-  },
-  "Flowy & Organic": {
-    handleFactor:             0.7,
-    nodeOutFactor:            1.2,
-    nodeInFactor:             1.2,
-    rerouteOutFactor:         1.3,
-    rerouteInFactor:          1.3,
-    crossingBehaviorNodes:    "Natural Loop",
-    crossingBehaviorReroutes: "Natural Loop",
-    pushOutMin:               0,
-    pushOutMax:               80,
-    rerouteRadius:            6,
-    socketMin:                15,
-    socketMax:                55,
-    stretchRef:               400,
-    nonLinear:                0.8,
-    inversionPull:            60,
-    invertBackward:           true,
-    tailGrowth:               0.15,
-    verticalTightness:        0.33,
-    verticalEscapeScale:      0.5,
-    nodeBodyClearance:        28,
-  },
-  "Straight Business": {
-    handleFactor:             0.2,
-    nodeOutFactor:            0.5,
-    nodeInFactor:             0.5,
-    rerouteOutFactor:         0.5,
-    rerouteInFactor:          0.5,
-    crossingBehaviorNodes:    "Hard Push Out",
-    crossingBehaviorReroutes: "Hard Push Out",
-    pushOutMin:               10,
-    pushOutMax:               40,
-    rerouteRadius:            3,
-    socketMin:                5,
-    socketMax:                15,
-    stretchRef:               150,
-    nonLinear:                1.5,
-    inversionPull:            20,
-    invertBackward:           false,
-    tailGrowth:               0.02,
-    verticalTightness:        1.0,
-    verticalEscapeScale:      0.15,
-    nodeBodyClearance:        16,
-  },
-  // Approximates the original LiteGraph formula: offset = dist * 0.25
-  // socketMin/Max/stretchRef calibrated so the smoothstep matches dist*0.25 within ~10%
-  // at typical node spacings (150–600 px). invertBackward=false keeps handles pointing
-  // outward (right from output, left from input) matching the original's sign convention.
-  // verticalEscapeScale=0 preserves fully horizontal tension on all wire angles.
-  "Classic Comfy": {
-    handleFactor:             1.0,
-    nodeOutFactor:            1.0,
-    nodeInFactor:             1.0,
-    rerouteOutFactor:         0.8,
-    rerouteInFactor:          0.8,
-    crossingBehaviorNodes:    "Natural Loop",
-    crossingBehaviorReroutes: "Natural Loop",
-    pushOutMin:               0,
-    pushOutMax:               50,
-    rerouteRadius:            5,
-    socketMin:                5,
-    socketMax:                150,
-    stretchRef:               600,
-    nonLinear:                1.0,
-    inversionPull:            75,
-    invertBackward:           false,
-    tailGrowth:               0.08,
-    verticalTightness:        0.67,
-    verticalEscapeScale:      0.0,
-    nodeBodyClearance:        24,
-  },
-}
-
-// ─── Setting ID ↔ State Key Map ─────────────────────────────────────────────
-// Used by the preset loader to sync UI settings after applying a preset.
-
-const SETTING_ID_MAP = {
-  "NKD Reroutes.Mode":                   "mode",
-  "NKD Reroutes.SimpleRerouteOffset":    "simpleRerouteOffset",
-  "NKD Reroutes.WireCurvature":          "handleFactor",
-  "NKD Reroutes.NodeOutgoingPull":       "nodeOutFactor",
-  "NKD Reroutes.NodeIncomingPull":       "nodeInFactor",
-  "NKD Reroutes.RerouteOutgoingPull":    "rerouteOutFactor",
-  "NKD Reroutes.RerouteIncomingPull":    "rerouteInFactor",
-  "NKD Reroutes.NodeBackwardsCrossing":  "crossingBehaviorNodes",
-  "NKD Reroutes.RerouteBackwardsCrossing": "crossingBehaviorReroutes",
-  "NKD Reroutes.BackwardWireClearanceMin": "pushOutMin",
-  "NKD Reroutes.BackwardWireClearanceMax": "pushOutMax",
-  "NKD Reroutes.RerouteDotSize":           "rerouteRadius",
-  "NKD Reroutes.SocketMin":             "socketMin",
-  "NKD Reroutes.SocketMax":             "socketMax",
-  "NKD Reroutes.StretchRef":            "stretchRef",
-  "NKD Reroutes.NonLinear":             "nonLinear",
-  "NKD Reroutes.InversionPull":         "inversionPull",
-  "NKD Reroutes.InvertBackward":        "invertBackward",
-  "NKD Reroutes.TailGrowth":            "tailGrowth",
-  "NKD Reroutes.VerticalTightness":     "verticalTightness",
-  "NKD Reroutes.VerticalEscapeScale":   "verticalEscapeScale",
-  "NKD Reroutes.NodeBodyClearance":     "nodeBodyClearance",
-  "NKD Reroutes.MagnetEnabled":    "magnetEnabled",
-  "NKD Reroutes.MagnetRadius":     "magnetRadius",
-  "NKD Reroutes.MagnetGapX":       "magnetGapX",
-  "NKD Reroutes.MagnetGapY":       "magnetGapY",
-  "NKD Reroutes.MagnetGuides":     "magnetGuides",
-  "NKD Reroutes.MagnetMatchWidth": "magnetMatchWidth",
-}
 
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
@@ -195,6 +36,7 @@ app.registerExtension({
     registerSidebarPanel()
     installMagnet(state)
     installShrinkOnLegacy()
+    installLabBridge()
   },
 })
 
@@ -203,36 +45,26 @@ app.registerExtension({
 
 const SLIDER_DEFS = [
   { id: "WireCurvature",            key: "handleFactor",         label: "Wire Curvature",          tip: "Overall roundness of every wire. Low = almost straight lines, high = wide sweeping curves.", min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "NodeOutgoingPull",         key: "nodeOutFactor",        label: "Node Outgoing Pull",       tip: "Extra roundness where a wire leaves a node's output. Higher = it bulges further out before heading to its target.", min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "NodeIncomingPull",         key: "nodeInFactor",         label: "Node Incoming Pull",       tip: "Extra roundness where a wire arrives at a node's input.",                                    min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "RerouteOutgoingPull",      key: "rerouteOutFactor",     label: "Reroute Outgoing Pull",    tip: "Same as Node Outgoing Pull, but for wires leaving a reroute dot.",                           min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "RerouteIncomingPull",      key: "rerouteInFactor",      label: "Reroute Incoming Pull",    tip: "Same as Node Incoming Pull, but for wires arriving at a reroute dot.",                       min: 0.1, max: 2.0,  step: 0.1  },
-  { id: "BackwardWireClearanceMin", key: "pushOutMin",           label: "Backward Clearance Min",   tip: "How far a backward wire (target node sitting to the LEFT of the source) is pushed sideways when the two nodes are stacked almost vertically. This is the smallest push it will ever get.",   min: 0,   max: 150,  step: 5    },
-  { id: "BackwardWireClearanceMax", key: "pushOutMax",           label: "Backward Clearance Max",   tip: "How far a backward wire is pushed sideways when it runs mostly horizontal. Between horizontal and vertical the push blends smoothly down to the Min value.",                                min: 0,   max: 200,  step: 5    },
+  { id: "NodePull",                 key: "nodeFactor",           label: "Node Pull",                tip: "Extra roundness at the wire ends that touch a node socket.",                                 min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "ReroutePull",              key: "rerouteFactor",        label: "Reroute Pull",             tip: "Same, for the ends that touch a reroute dot. Below Node Pull keeps chains of reroutes tight.", min: 0.1, max: 2.0, step: 0.1 },
   { id: "RerouteDotSize",           key: "rerouteRadius",        label: "Reroute Dot Size",         tip: "How big the reroute dot looks on screen. It never goes below 3 so it stays easy to click.", min: 3,   max: 15,   step: 1    },
-  { id: "SocketMin",                key: "socketMin",            label: "Socket Offset Min",        tip: "How far the curve reaches out of the socket when the two nodes are close together.",         min: 3,   max: 50,   step: 1    },
-  { id: "SocketMax",                key: "socketMax",            label: "Socket Offset Max",        tip: "How far the curve reaches out of the socket when the two nodes are far apart.",              min: 10,  max: 200,  step: 5    },
-  { id: "StretchRef",               key: "stretchRef",           label: "Stretch Reference",        tip: "Distance between nodes at which the curve reaches Socket Offset Max. Larger = curves open up more gradually as you pull nodes apart.",                                                        min: 50,  max: 1000, step: 50   },
-  { id: "NonLinear",                key: "nonLinear",            label: "Curvature Non-Linearity",  tip: "Makes short and long wires look more different from each other. Above 1.0 = short wires get tighter while long ones stay open. Below 1.0 = every wire curves about the same.",                min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "NonLinear",                key: "nonLinear",            label: "Elasticity",               tip: "Makes short and long wires look more different from each other. Above 1.0 = long wires open up while short ones stay tight; below 1.0 = every wire curves about the same. The turning point is Socket Offset Max.", min: 0.1, max: 2.0,  step: 0.1  },
+  { id: "DistFactor",               key: "distFactor",           label: "Distance Stretch",         tip: "Grows every handle in direct proportion to how far apart the nodes are — this is what makes long wires look stretched instead of flat. 0 = off, 1 = close to ComfyUI's classic look.",                     min: 0,   max: 2.0,  step: 0.05 },
+  { id: "CrossingMargin",           key: "crossingMargin",       label: "Crossing Width",           tip: "How much horizontal travel the forward-to-backward transition is spread over. The wire starts growing its loop this many pixels BEFORE the target crosses the source, and finishes this many pixels after. Small values make the loop pop in abruptly.",                                          min: 0,   max: 300,  step: 10   },
+  { id: "MaxHandleRatio",           key: "maxHandleRatio",       label: "Handle Ceiling",           tip: "Caps each handle to this fraction of the horizontal gap between the two sockets. At 0.5 the two handles together never exceed the gap, which is exactly the point where the curve stops doubling back on itself — that S-shape short, steep wires get. 0 = no ceiling.",                                     min: 0,   max: 1.5,  step: 0.05 },
+  { id: "BackwardStretch",          key: "backwardStretch",      label: "Backward Stretch",         tip: "How much the backward loop grows with distance. A neighbour further to the left and further down gets more curve, at the same rate whatever the angle — so the wire clears the socket instead of hugging the node.",                                                                                       min: 0,   max: 1.0,  step: 0.05 },
+  { id: "MinHandle",                key: "minSplineOffset",      label: "Minimum Handle",           tip: "Hard floor for every handle. Too high and it swallows the curve: every wire ends up the same shape whatever its length.",                                                                                   min: 0,   max: 60,   step: 1    },
+  { id: "CornerRadius",             key: "cornerRadius",         label: "PCB Corner Radius",        tip: "How rounded the right-angle corners are when PCB routing is on. 0 = sharp corners. Each corner is limited to half of its shortest side, so tight zig-zags stay clean instead of collapsing.", min: 0, max: 30, step: 1 },
+  { id: "StubLength",               key: "stubLength",           label: "Socket Stub",              tip: "Length of the straight tail every wire leaves the socket with before the curve starts. 0 = none, straight from the dot. On short wires it shrinks with the wire so the curve between the two tails never folds over itself.", min: 0, max: 60, step: 1 },
   { id: "InversionPull",            key: "inversionPull",        label: "Inversion Pull",           tip: "How wide the 'C' loop is when a wire has to travel backwards (target node to the LEFT of the source). Stays the same no matter how far apart the nodes are.",                                 min: 10,  max: 150,  step: 5    },
-  { id: "TailGrowth",                key: "tailGrowth",           label: "Long-distance growth",     tip: "Keeps very long wires curving instead of going flat. 0 = they stop growing once past the Stretch Reference distance.",                                                                    min: 0,   max: 0.3,  step: 0.01 },
-  { id: "VerticalTightness",         key: "verticalTightness",    label: "Vertical Tightness",       tip: "How straight a wire becomes when it runs almost vertically. 0 = it keeps its full curve, 1 = it collapses into a straight line.",                                                          min: 0, max: 1.0, step: 0.05 },
-  { id: "VerticalEscapeScale",      key: "verticalEscapeScale",  label: "Vertical Escape",          tip: "Pushes near-vertical wires up or down, away from the node body, so they don't disappear behind it. 0 = off, 1 = maximum.",                                                                   min: 0,   max: 1.0,  step: 0.05 },
   { id: "NodeBodyClearance",        key: "nodeBodyClearance",    label: "Node Body Clearance",      tip: "Keeps a minimum amount of curve when two nodes sit almost on top of each other, so the wire doesn't vanish into the node's edge.",                                                           min: 0,   max: 80,   step: 2    },
   { id: "MagnetRadius", key: "magnetRadius", label: "Magnet Radius",         tip: "How close you have to drag a node before it snaps onto a neighbour.",              min: 5, max: 60,  step: 1 },
   { id: "MagnetGapY",   key: "magnetGapY",   label: "Magnet Vertical Gap",   tip: "Space left between nodes when one snaps below another in the same column.",        min: 0, max: 60,  step: 2 },
   { id: "MagnetGapX",   key: "magnetGapX",   label: "Magnet Horizontal Gap", tip: "Space left between nodes when one snaps beside another in the same row.",          min: 0, max: 120, step: 2 },
 ]
 
-const COMBO_DEFS = [
-  { id: "NodeBackwardsCrossing",    key: "crossingBehaviorNodes",    label: "Node Backward Crossing",   tip: "How a wire behaves when it has to travel backwards, i.e. the target node sits to the LEFT of the source. 'Natural Loop' lets it arc around freely; 'Hard Push Out' always steps it out a fixed amount first, which looks tidier." },
-  { id: "RerouteBackwardsCrossing", key: "crossingBehaviorReroutes", label: "Reroute Backward Crossing", tip: "Same as above, but for wires travelling backwards from a reroute dot." },
-]
-
 // Quick lookup: stateKey → tip (for sidebar tooltips)
-const TIPS = Object.fromEntries(
-  [...SLIDER_DEFS, ...COMBO_DEFS].map(d => [d.key, d.tip])
-)
+const TIPS = Object.fromEntries(SLIDER_DEFS.map(d => [d.key, d.tip]))
 
 // ─── Declarative Settings ────────────────────────────────────────────────────
 
@@ -275,6 +107,15 @@ function registerSettings() {
     onChange(v)  { state.simpleRerouteOffset = Number(v); redraw() },
   })
 
+  // --- Hidden: ruteo PCB, persistido desde el panel ---
+  add({
+    id:           "NKD Reroutes.PcbEnabled",
+    name:         "PCB routing (managed by sidebar)",
+    type:         "hidden",
+    defaultValue: false,
+    onChange(v)  { state.pcbEnabled = Boolean(v); redraw() },
+  })
+
   // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
   for (const [id, key] of [
     ["MagnetEnabled",    "magnetEnabled"],
@@ -290,13 +131,23 @@ function registerSettings() {
     })
   }
 
+  // --- Presets del usuario (los gestiona el panel) ---
+  add({
+    id:           USER_PRESETS_ID,
+    name:         "Saved wire presets (managed by sidebar)",
+    type:         "hidden",
+    defaultValue: "{}",
+  })
+
   // --- Preset selector ---
   add({
     id:           "NKD Reroutes.Preset",
     name:         "Wire Style Preset",
     tooltip:      "Sets every wire setting at once. Pick one as a starting point, then fine-tune with the sliders below.",
     type:         "combo",
-    options:      ["Custom", ...Object.keys(PRESETS)],
+    // Incluye los guardados por el usuario. Los que se creen después salen al
+    // recargar; el sitio vivo para gestionarlos es el panel.
+    options:      ["Custom", ...Object.keys(allPresets())],
     defaultValue: "Custom",
     onChange(v) { applyPreset(v) },
   })
@@ -313,38 +164,97 @@ function registerSettings() {
     })
   }
 
-  for (const c of COMBO_DEFS) {
-    add({
-      id:           `NKD Reroutes.${c.id}`,
-      name:         c.label,
-      tooltip:      c.tip,
-      type:         "combo",
-      options:      ["Natural Loop", "Hard Push Out"],
-      defaultValue: DEFAULTS[c.key],
-      onChange(v) { state[c.key] = v; redraw() },
-    })
+}
+
+// ─── Presets ─────────────────────────────────────────────────────────────────
+//
+// "Classic Comfy" viene de fábrica como referencia; los demás los guarda el
+// usuario. Van en un ajuste de ComfyUI y no en localStorage: así viajan con el
+// perfil, sobreviven a un cambio de navegador y están en todas las pestañas.
+// Se guardan como texto JSON para que ningún intermediario les cambie el tipo.
+
+const USER_PRESETS_ID = "NKD Reroutes.UserPresets"
+
+function userPresets() {
+  try {
+    const raw = app.ui?.settings?.getSettingValue?.(USER_PRESETS_ID)
+    const obj = typeof raw === "string" ? JSON.parse(raw) : raw
+    return obj && typeof obj === "object" ? obj : {}
+  } catch {
+    return {}   // un JSON corrupto no puede tumbar el panel
   }
 }
 
-// ─── Preset Application ──────────────────────────────────────────────────────
+function allPresets() {
+  return { ...PRESETS, ...userPresets() }
+}
+
+// Sólo geometría: guardar el tamaño del punto o los ajustes del imán aquí haría
+// que recuperar un estilo de cable te cambiara cosas que no son del cable.
+function saveUserPreset(name) {
+  const preset = {}
+  for (const key of PRESET_KEYS) preset[key] = state[key]
+  const next = { ...userPresets(), [name]: preset }
+  app.ui?.settings?.setSettingValue?.(USER_PRESETS_ID, JSON.stringify(next))
+}
+
+function deleteUserPreset(name) {
+  const next = { ...userPresets() }
+  delete next[name]
+  app.ui?.settings?.setSettingValue?.(USER_PRESETS_ID, JSON.stringify(next))
+}
 
 function applyPreset(name) {
-  const preset = PRESETS[name]
+  const preset = allPresets()[name]
   if (!preset) return // "Custom" — do nothing, user tweaks manually
+  applyConfig(preset)
+}
 
-  // 1. Write values into live state
-  Object.assign(state, preset)
+// Aplica una config venga de donde venga: un preset o el laboratorio.
+//
+// Filtra la entrada porque esto acaba escribiendo en los ajustes del servidor:
+// sólo pasan claves conocidas y del mismo tipo que su valor por defecto.
+function applyConfig(obj, persist = true) {
+  const clean = {}
+  for (const [key, value] of Object.entries(obj || {})) {
+    const def = DEFAULTS[key]
+    if (def === undefined || typeof value !== typeof def) continue
+    if (typeof def === "number" && !Number.isFinite(value)) continue
+    clean[key] = value
+  }
+  if (!Object.keys(clean).length) return
 
-  // 2. Sync ComfyUI's settings UI so sliders/combos reflect the new values
-  if (app.ui?.settings?.setSettingValue) {
+  Object.assign(state, clean)
+
+  // Sincroniza los ajustes de ComfyUI. Las claves sin id —las que aún no tienen
+  // setting propio— se aplican en vivo pero no persisten: es lo que toca
+  // mientras se afinan en el laboratorio.
+  if (persist && app.ui?.settings?.setSettingValue) {
     for (const [settingId, stateKey] of Object.entries(SETTING_ID_MAP)) {
-      if (stateKey in preset) {
-        app.ui.settings.setSettingValue(settingId, preset[stateKey])
-      }
+      if (stateKey in clean) app.ui.settings.setSettingValue(settingId, clean[stateKey])
     }
   }
 
+  syncPanelFromState()
   redraw()
+}
+
+// Puente con el laboratorio (js/lab.html). Mismo origen ⇒ mismo localStorage, y
+// el evento `storage` sólo llega a las OTRAS pestañas: mueves un slider allí y
+// los cables de aquí cambian al momento.
+//
+// La persistencia va aparte, con retardo: arrastrar un slider dispara decenas de
+// escrituras y cada `setSettingValue` es un viaje al servidor.
+let _labTimer = null
+function installLabBridge() {
+  addEventListener("storage", (e) => {
+    if (e.key !== "nkd.lab.config" || !e.newValue) return
+    let obj
+    try { obj = JSON.parse(e.newValue) } catch { return }
+    applyConfig(obj, false)          // al vuelo, sin tocar el servidor
+    clearTimeout(_labTimer)
+    _labTimer = setTimeout(() => applyConfig(obj, true), 400)   // y al parar, se guarda
+  })
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -381,161 +291,16 @@ function isRerouteEndpoint(dir, extras, link, side) {
 }
 
 // ─── Tension Math ────────────────────────────────────────────────────────────
-// Pure function — all the Bézier handle logic in one place.
+// La geometría vive en ./spline/tension.js, pura y testeada. Aquí queda sólo
+// el adaptador: resolver si cada extremo es un reroute —eso necesita el grafo
+// de ComfyUI— y pasarle el state vivo como configuración.
 
 function computeSegmentTension(a, b, startDir, endDir, extras, link) {
-  const dx = b[0] - a[0]
-  const dy = b[1] - a[1]
-  const wireDist = Math.sqrt(dx * dx + dy * dy)
-  // 0→1 smoothstep ramp for scaling floors on short connections.
-  // Smoothstep instead of linear gives zero-derivative endpoints — no kink at wireDist=80.
-  const tDist    = Math.min(1, wireDist / 80)
-  const distRamp = tDist * tDist * (3 - 2 * tDist)
-
-  // --- Determine horizontal sign for each handle ---
-  let startSignX = 1
-  let endSignX   = -1
-
-  if (extras?.startControl)      startSignX = extras.startControl[0] < 0 ? -1 : 1
-  else if (startDir === 3)       startSignX = -1 // LEFT
-
-  if (extras?.endControl)        endSignX = extras.endControl[0] > 0 ? 1 : -1
-  else if (endDir === 4)         endSignX = 1    // RIGHT
-
-  // --- Detect endpoint types ---
-  const startIsReroute = isRerouteEndpoint(startDir, extras, link, "start")
-  const endIsReroute   = isRerouteEndpoint(endDir,   extras, link, "end")
-
-  // --- Dynamic socket offset (smoothstep + linear tail) ---
-  // Smoothstep grows from socketMin to socketMax over [0, stretchRef].
-  // Beyond stretchRef a residual linear term keeps the curve visible at long distances.
-  // tailGrowth controls the rate — at 0.08 a 1200px wire gets ~72px extra handle.
-  const absDx   = Math.abs(dx)
-  const tSock   = Math.min(1, absDx / state.stretchRef)
-  const smoothT = tSock * tSock * (3 - 2 * tSock)
-  const tail    = absDx > state.stretchRef ? (absDx - state.stretchRef) * state.tailGrowth : 0
-  let baseTension = state.socketMin + (state.socketMax - state.socketMin) * smoothT + tail
-
-  // --- Non-linear elasticity ---
-  // ratio < 1 for small tensions, > 1 for large; nonLinear amplifies the contrast.
-  const ratio = Math.pow(baseTension / 250, 0.9)
-  baseTension = baseTension * Math.pow(ratio, state.nonLinear - 1)
-
-  // --- Global curvature scale ---
-  baseTension *= state.handleFactor
-
-  // --- Per-endpoint multipliers ---
-  const outMultiplier = startIsReroute ? state.rerouteOutFactor : state.nodeOutFactor
-  const inMultiplier  = endIsReroute   ? state.rerouteInFactor  : state.nodeInFactor
-
-  let offsetStart = baseTension * outMultiplier
-  let offsetEnd   = baseTension * inMultiplier
-
-  // --- Crossing behavior ---
-  const startCrossing = startIsReroute ? state.crossingBehaviorReroutes : state.crossingBehaviorNodes
-  const endCrossing   = endIsReroute   ? state.crossingBehaviorReroutes : state.crossingBehaviorNodes
-
-  // dampingWeight: 1 = full damping (forward), 0 = no damping (fully backward).
-  // Driven by crossBlend so damping fades out gradually rather than switching off at 0.5.
-  let dampingWeightStart = 1
-  let dampingWeightEnd   = 1
-
-  // --- Crossing blend factor ---
-  // Smoothly interpolates forward tension into backward tension over a ±30 px window
-  // around dx = 0, eliminating the hard jump at the forward/backward boundary.
-  const CROSSING_MARGIN = 30
-  let crossBlend = 0
-  if (dx < CROSSING_MARGIN) {
-    const t = Math.max(0, Math.min(1, (CROSSING_MARGIN - dx) / (2 * CROSSING_MARGIN)))
-    crossBlend = t * t * (3 - 2 * t)
-  }
-
-  // --- Angle-based modulation ---
-  // Fades inversionPull/clearance to zero as the wire approaches vertical.
-  // Runs across the full blend zone, not just the purely backward region.
-  let angleMult = 1
-  if (dx < CROSSING_MARGIN) {
-    const angle  = Math.atan2(Math.abs(dy), Math.abs(dx))              // 0 (horizontal) → π/2 (vertical)
-    const tAngle = Math.max(0, (angle - Math.PI / 4) / (Math.PI / 4)) // 0°–45°→0, 90°→1
-    angleMult = 1 - tAngle * tAngle * (3 - 2 * tAngle)               // smoothstep falloff
-  }
-
-  // --- Backward crossing: sign flip + organic belly ---
-  // Sign snaps at dx = 0 (acceptable); magnitude blends smoothly via crossBlend.
-  if (dx < 0 && state.invertBackward) {
-    if (startCrossing !== "Hard Push Out") startSignX *= -1
-    if (endCrossing   !== "Hard Push Out") endSignX   *= -1
-  }
-
-  if (crossBlend > 0) {
-    // dy contribution: fills the gap left by inversionPull*angleMult as the wire tilts
-    // toward vertical. Factor 0.25 matches the original ComfyUI dist*0.25 at full vertical.
-    const dyBoost   = Math.abs(dy) * 0.25 * (1 - angleMult)
-    const invBase   = state.inversionPull * angleMult + dyBoost
-    const clearance = state.pushOutMin + (state.pushOutMax - state.pushOutMin) * angleMult + dyBoost
-    if (startCrossing !== "Hard Push Out") {
-      const raw = invBase * outMultiplier
-      const backStart = startIsReroute ? raw : Math.max(clearance, raw)
-      offsetStart = offsetStart * (1 - crossBlend) + backStart * crossBlend
-      dampingWeightStart = 1 - crossBlend
-    }
-    if (endCrossing !== "Hard Push Out") {
-      const raw = invBase * inMultiplier
-      const backEnd = endIsReroute ? raw : Math.max(clearance, raw)
-      offsetEnd = offsetEnd * (1 - crossBlend) + backEnd * crossBlend
-      dampingWeightEnd = 1 - crossBlend
-    }
-  }
-
-  // --- Hard Push Out: strict override — interpolated between pushOutMin and pushOutMax ---
-  if (startCrossing === "Hard Push Out") {
-    offsetStart = state.pushOutMin + (state.pushOutMax - state.pushOutMin) * angleMult
-    dampingWeightStart = 0
-  }
-  if (endCrossing === "Hard Push Out") {
-    offsetEnd = state.pushOutMin + (state.pushOutMax - state.pushOutMin) * angleMult
-    dampingWeightEnd = 0
-  }
-
-  // --- Clamp offsets ---
-  offsetStart = Math.min(state.maxSplineOffset, Math.max(state.minSplineOffset, offsetStart))
-  offsetEnd   = Math.min(state.maxSplineOffset, Math.max(state.minSplineOffset, offsetEnd))
-
-  // --- Verticality damping (smoothstep) ---
-  // verticalTightness (0→1) drives both axes of the old dampingRef/dampingMin pair:
-  //   dampingRef  = 200 - 150 * t  →  200px (loose) at 0,  50px (tight) at 1
-  //   dampingMin  = 0.3 * (1 - t)  →  0.3 (keeps curve) at 0,  0 (fully flat) at 1
-  const vt = state.verticalTightness
-  const derivedDampingRef = 200 - 150 * vt
-  const derivedDampingMin = 0.3 * (1 - vt)
-  const t = Math.min(1, absDx / derivedDampingRef)
-  const smoothDamping = derivedDampingMin + (1 - derivedDampingMin) * (t * t * (3 - 2 * t))
-
-  if (dampingWeightStart > 0) { offsetStart *= 1 - dampingWeightStart * (1 - smoothDamping); offsetStart = Math.max(state.socketMin * distRamp, offsetStart) }
-  if (dampingWeightEnd   > 0) { offsetEnd   *= 1 - dampingWeightEnd   * (1 - smoothDamping); offsetEnd   = Math.max(state.socketMin * distRamp, offsetEnd)   }
-
-  // --- Node body clearance: minimum X offset when connection is near-vertical ---
-  // Fades out smoothly from full strength at dx=0 to zero at dx=160,
-  // avoiding the hard jump that the old if(dx<80) threshold produced.
-  const CLR_FADE_START = 80
-  const CLR_FADE_END   = 160
-  if (absDx < CLR_FADE_END) {
-    const tClr    = Math.max(0, Math.min(1, (absDx - CLR_FADE_START) / (CLR_FADE_END - CLR_FADE_START)))
-    const clrMult = 1 - tClr * tClr * (3 - 2 * tClr)
-    const clr     = state.nodeBodyClearance * distRamp * clrMult
-    offsetStart = Math.max(offsetStart, clr)
-    offsetEnd   = Math.max(offsetEnd,   clr)
-  }
-
-  // --- Vertical escape ---
-  const vertRatio = wireDist > 0 ? Math.abs(dy) / wireDist : 0
-  const escapeY   = offsetStart * vertRatio * state.verticalEscapeScale
-  const escapeSign = dy >= 0 ? 1 : -1
-
-  return {
-    startControl: [offsetStart * startSignX,  escapeY * escapeSign],
-    endControl:   [offsetEnd   * endSignX,   -escapeY * escapeSign],
-  }
+  return computeTension(a, b, {
+    startDir, endDir, extras,
+    startIsReroute: isRerouteEndpoint(startDir, extras, link, "start"),
+    endIsReroute:   isRerouteEndpoint(endDir,   extras, link, "end"),
+  }, state)
 }
 
 // ─── LiteGraph Patches ──────────────────────────────────────────────────────
@@ -543,7 +308,24 @@ function computeSegmentTension(a, b, startDir, endDir, extras, link) {
 function patchLiteGraph() {
   patchDrawLink()
   patchRenderLink()
-  patchDrawConnections()
+  patchPathRenderer()
+  patchReroutes()          // directo, si el frontend expone la clase
+  patchDrawConnections()   // plan B perezoso para los que no la expongan
+}
+
+// El tamaño del punto se aplicaba SÓLO cuando el dibujado de conexiones pasaba
+// por nuestro envoltorio y además el grafo ya tenía algún reroute: dos
+// condiciones que dependen del orden de arranque y de que nadie más haya
+// envuelto drawConnections antes. Cuando alguna fallaba, los puntos se quedaban
+// con el aspecto nativo y el slider no hacía nada — sin ningún aviso.
+//
+// El frontend actual expone la clase, así que se parchea de una y en el sitio,
+// sin esperar a que se dibuje nada.
+function patchReroutes() {
+  const proto = globalThis.LiteGraph?.Reroute?.prototype
+  if (!proto || _patchedReroutes.has(proto)) return
+  applyReroutePatches(proto)
+  _patchedReroutes.add(proto)
 }
 
 // --- 1. Legacy drawLink (used for basic canvas spline rendering) ---
@@ -558,7 +340,10 @@ function patchDrawLink() {
 
     // Simple mode: only take over rendering when a reroute is involved.
     // Pure node↔node wires fall through to LiteGraph's native renderer.
-    if (state.mode === "Simple") {
+    // El ruteo PCB se salta esta puerta: es otro renderizador, no un afinado de
+    // la curva, y aquí dejaba sin rutear justo los cables nodo↔nodo — que son
+    // los que de verdad tienen nodos que esquivar.
+    if (state.mode === "Simple" && !state.pcbEnabled) {
       const startIsReroute = start_node?.type?.includes("Reroute")
       const endIsReroute   = end_node?.type?.includes("Reroute")
       if (!startIsReroute && !endIsReroute) return orig.apply(this, arguments)
@@ -576,6 +361,13 @@ function patchDrawLink() {
     ctx.beginPath()
 
     const renderMode = app.canvas?.links_render_mode ?? 2
+
+    const pcb = state.pcbEnabled && drawRoute(ctx, this, start, end, link_data, start_node, end_node)
+    if (pcb) {
+      ctx.stroke()
+      ctx.restore()
+      return
+    }
 
     if (renderMode === 1) {
       // LINEAR
@@ -596,7 +388,9 @@ function patchDrawLink() {
       // SPLINE
       const startIsReroute = start_node?.type?.includes("Reroute")
       const endIsReroute   = end_node?.type?.includes("Reroute")
-      let sCtl, eCtl
+      // Puntas del rabito: por defecto los propios extremos, así que con el
+      // rabito apagado el trazo es exactamente el de antes.
+      let sCtl, eCtl, sP = start, eP = end
       if (state.mode === "Simple") {
         // We only get here if at least one endpoint is a reroute (gate above).
         // Fixed-direction handles (start → right, end → left) — same convention
@@ -613,13 +407,19 @@ function patchDrawLink() {
         )
         sCtl = tension.startControl
         eCtl = tension.endControl
+        sP   = tension.startPoint
+        eP   = tension.endPoint
       }
+      // Un solo trazo: rabito, curva, rabito. Con stubLength = 0 las puntas
+      // son los extremos y los dos lineTo no dibujan nada.
       ctx.moveTo(start[0], start[1])
+      ctx.lineTo(sP[0], sP[1])
       ctx.bezierCurveTo(
-        start[0] + sCtl[0], start[1] + sCtl[1],
-        end[0]   + eCtl[0], end[1]   + eCtl[1],
-        end[0],             end[1]
+        sP[0] + sCtl[0], sP[1] + sCtl[1],
+        eP[0] + eCtl[0], eP[1] + eCtl[1],
+        eP[0],           eP[1]
       )
+      ctx.lineTo(end[0], end[1])
     }
 
     ctx.stroke()
@@ -638,7 +438,9 @@ function patchRenderLink() {
   ) {
     if (!extras) extras = {}
 
-    if (this.links_render_mode === 2) {
+    // En PCB la geometría la pone el ruteo, en el patch del renderizador de
+    // trazos. Aquí no hay tensión que calcular ni rabito que pintar.
+    if (this.links_render_mode === 2 && !state.pcbEnabled) {
       if (state.mode === "Simple") {
         // Only override handles at reroute endpoints; let Vanilla handle node endpoints.
         const startIsReroute = isRerouteEndpoint(start_dir, extras, link, "start")
@@ -655,11 +457,144 @@ function patchRenderLink() {
         const tension = computeSegmentTension(a, b, start_dir, end_dir, extras, link)
         extras.startControl = tension.startControl
         extras.endControl   = tension.endControl
+        // El renderer nativo dibuja la curva entre los dos puntos que le
+        // pasemos: le damos las PUNTAS del rabito y los tramos rectos los
+        // pintamos aquí. El color se resuelve una vez y se le pasa explícito
+        // — con color nulo lo resuelve él por dentro y no lo publica, así que
+        // era la única forma de garantizar que curva y rabito son del mismo.
+        const stubColor = drawStubs(this, ctx, a, b, tension, link, color)
+        if (stubColor) {
+          a     = tension.startPoint
+          b     = tension.endPoint
+          color = stubColor
+        }
       }
     }
 
     return orig.call(this, ctx, a, b, link, skip_border, flow, color, start_dir, end_dir, extras)
   }
+}
+
+// Los dos tramos rectos que salen de cada socket antes de que empiece la
+// curva. Devuelve el color con el que los ha pintado —el que hay que pasarle
+// también al renderer nativo— o null si no hay rabito que pintar.
+function drawStubs(canvas, ctx, a, b, tension, link, color) {
+  const { startPoint, endPoint } = tension
+  if (startPoint[0] === a[0] && endPoint[0] === b[0]) return null
+
+  // La misma cadena que usa el frontend para resolver el color de un cable.
+  // Si no sale nada, mejor sin rabito que un rabito de otro color.
+  const c = color || link?.color ||
+            LGraphCanvas.link_type_colors?.[link?.type] || canvas.default_link_color
+  if (!c) return null
+
+  ctx.save()
+  ctx.strokeStyle = c
+  ctx.lineWidth   = canvas.connections_width ?? 3
+  ctx.beginPath()
+  // Sólo el lado que de verdad tiene rabito: en un tramo nodo→reroute el otro
+  // mide cero, y un trazo de longitud cero pinta un punto si el lineCap que
+  // haya quedado puesto es redondo.
+  if (startPoint[0] !== a[0]) { ctx.moveTo(a[0], a[1]); ctx.lineTo(startPoint[0], startPoint[1]) }
+  if (endPoint[0]   !== b[0]) { ctx.moveTo(b[0], b[1]); ctx.lineTo(endPoint[0],   endPoint[1]) }
+  ctx.stroke()
+  ctx.restore()
+  return c
+}
+
+// --- 2b. Ruteo en el frontend moderno ---
+//
+// La Bézier del camino moderno se controla desde renderLink pasando handles,
+// pero una polilínea no cabe en dos handles: hay que entrar más abajo, en el
+// renderizador de trazos, que es quien construye el Path2D. Enganchar ahí es
+// además lo que hace que el clic sobre el cable y el marcador central sigan la
+// traza — todo eso se deriva del mismo trazo.
+//
+// Se instala en diferido: app.canvas no existe cuando corre setup().
+function patchPathRenderer() {
+  let tries = 0
+  const timer = setInterval(() => {
+    const pr = app.canvas?.linkRenderer?.pathRenderer
+    if (pr) {
+      clearInterval(timer)
+      applyPathRendererPatches(Object.getPrototypeOf(pr))
+      return
+    }
+    // Silencio absoluto es el modo de fallo peor: el modo PCB se quedaría sin
+    // hacer nada en el canvas moderno y sin decir por qué.
+    if (++tries === 50) {
+      clearInterval(timer)
+      console.warn("[NKD Reroutes] este frontend no expone el renderizador de trazos; " +
+                   "el modo PCB sólo funcionará en el canvas clásico")
+    }
+  }, 200)
+}
+
+function applyPathRendererPatches(proto) {
+  const origDraw = proto.drawLink
+  proto.drawLink = function (ctx, linkData, context) {
+    linkData.__nkdRoute = null
+    // Los cables en vuelo (arrastrando desde un socket) se quedan como están:
+    // sus extremos cambian cada frame y rutearlos es tirar el trabajo.
+    if (state.pcbEnabled && linkData.id !== "temp" && linkData.id !== "dragging") {
+      const s = linkData.startPoint, e = linkData.endPoint
+      // Aquí sólo llega el id, y los carriles necesitan saber en qué socket de
+      // qué nodo empieza el cable — eso vive en el grafo.
+      const graph = app.canvas?.graph
+      // 'none' es la marca de reroute: el frontend pone CENTER en los dos lados
+      // de un tramo que toca un punto, y nada más recibe esa dirección.
+      linkData.__nkdRoute = routeFor(linkData.id, [s.x, s.y], [e.x, e.y], {
+        pointerDown:    Boolean(app.canvas?.pointer?.isDown),
+        startIsReroute: linkData.startDirection === "none",
+        endIsReroute:   linkData.endDirection   === "none",
+        graph,
+        link:           graph?._links?.get?.(Number(linkData.id)) ?? null,
+      })
+    }
+    return origDraw.call(this, ctx, linkData, context)
+  }
+
+  const origPath = proto.drawLinkPath
+  proto.drawLinkPath = function (ctx, path, link, context, lineWidth, color) {
+    if (!link.__nkdRoute) return origPath.call(this, ctx, path, link, context, lineWidth, color)
+    ctx.strokeStyle = color
+    ctx.lineWidth   = lineWidth
+    ctx.lineJoin    = "round"
+    emitRoute(path, link.__nkdRoute, state.cornerRadius)
+    ctx.stroke(path)
+  }
+
+  const origCentre = proto.calculateCenterPoint
+  proto.calculateCenterPoint = function (link, context) {
+    if (!link.__nkdRoute) return origCentre.call(this, link, context)
+    // En el tramo recto MÁS LARGO, no a mitad de recorrido: el punto medio del
+    // recorrido puede caer justo en una esquina, que es donde peor se lee.
+    const pts = link.__nkdRoute
+    let best = 1, bestLen = -1
+    for (let k = 1; k < pts.length; k++) {
+      const len = Math.abs(pts[k][0] - pts[k - 1][0]) + Math.abs(pts[k][1] - pts[k - 1][1])
+      if (len > bestLen) { bestLen = len; best = k }
+    }
+    const a = pts[best - 1], b = pts[best]
+    link.centerPos   = { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 }
+    link.centerAngle = Math.atan2(b[1] - a[1], b[0] - a[0])
+  }
+}
+
+// Pide la ruta de este cable y la vuelca en el trazo abierto. Devuelve false si
+// no hay ruta —caso trivial, arrastre, o el motor se rindió— y entonces manda la
+// Bézier de siempre.
+function drawRoute(ctx, canvas, start, end, link, start_node, end_node) {
+  const pts = routeFor(link?.id ?? "temp", start, end, {
+    pointerDown:    Boolean(canvas.pointer?.isDown),
+    startIsReroute: Boolean(start_node?.type?.includes("Reroute")),
+    endIsReroute:   Boolean(end_node?.type?.includes("Reroute")),
+    graph:          canvas.graph,
+    link,
+  })
+  if (!pts) return false
+  emitRoute(ctx, pts, state.cornerRadius)
+  return true
 }
 
 // --- 3. Hook into drawConnections to patch reroute prototypes lazily ---
@@ -670,6 +605,14 @@ function patchDrawConnections() {
   const orig = LGraphCanvas.prototype.drawConnections
 
   LGraphCanvas.prototype.drawConnections = function (ctx) {
+    // Snapshot de obstáculos: una vez por frame, antes de que se dibuje ningún
+    // cable. Va aquí y no dentro del ruteo de cada cable porque leer todos los
+    // rectángulos del grafo por cable sería cuadrático.
+    if (state.pcbEnabled) {
+      try { beginFrame(this.graph) } catch (err) {
+        console.warn("[NKD Reroutes] snapshot de obstáculos fallido", err)
+      }
+    }
     if (app.graph?.reroutes?.size > 0) {
       const firstReroute = app.graph.reroutes.values().next().value
       const proto = Object.getPrototypeOf(firstReroute)
@@ -850,6 +793,8 @@ function buildPanel(el) {
 }
 .nkd-panel-preset-btn:hover { border-color: var(--input-text, #888); }
 .nkd-panel-preset-btn.nkd-active { border-color: var(--nkd-accent); color: var(--nkd-accent); }
+.nkd-panel-preset-save { border-style: dashed; opacity: 0.85; }
+.nkd-panel-preset-save:hover { opacity: 1; }
 .nkd-panel-row {
   display: flex;
   align-items: center;
@@ -971,7 +916,7 @@ function buildPanel(el) {
   function clearPreset() { presetBtns.forEach(b => b.classList.remove("nkd-active")) }
 
   function detectActivePreset() {
-    for (const [name, preset] of Object.entries(PRESETS)) {
+    for (const [name, preset] of Object.entries(allPresets())) {
       if (Object.keys(preset).every(k => state[k] === preset[k])) return name
     }
     return null
@@ -1072,28 +1017,11 @@ function buildPanel(el) {
     return row
   }
 
-  function makeSelect(key, label, options) {
-    const row = document.createElement("div")
-    row.className = "nkd-panel-row"
-    const lbl = document.createElement("span")
-    lbl.className = "nkd-panel-label"
-    lbl.textContent = label
-    if (TIPS[key]) { lbl.title = TIPS[key]; row.title = TIPS[key] }
-    const sel = document.createElement("select")
-    sel.className = "nkd-panel-select"
-    for (const opt of options) {
-      const o = document.createElement("option")
-      o.value = opt; o.textContent = opt
-      sel.appendChild(o)
-    }
-    sel.value = getSetting(key)
-    sel.addEventListener("change", () => { setSetting(key, sel.value); clearPreset() })
-    row.append(lbl, sel)
-    _panelRefs.set(key, { el: sel, type: "select" })
-    return row
-  }
 
-  function makeToggle(key, label, tip) {
+  // keepPreset: para interruptores que NO son geometría de la curva. Sin él,
+  // encender el ruteo PCB marcaba el preset como "Custom" sin haber tocado un
+  // solo mando de la curva.
+  function makeToggle(key, label, tip, keepPreset = false) {
     const row = document.createElement("div")
     row.className = "nkd-panel-row"
     if (tip) row.title = tip
@@ -1109,7 +1037,10 @@ function buildPanel(el) {
     track.className = "nkd-panel-toggle-track"
     wrapLabel.append(cb, track)
     row.append(lbl, wrapLabel)
-    cb.addEventListener("change", () => { setSetting(key, cb.checked); clearPreset() })
+    cb.addEventListener("change", () => {
+      setSetting(key, cb.checked)
+      if (!keepPreset) clearPreset()
+    })
     _panelRefs.set(key, { el: cb, type: "checkbox" })
     return row
   }
@@ -1147,7 +1078,21 @@ function buildPanel(el) {
     redraw()
     buildPanel(el)  // rebuild to show/hide advanced sections
   })
+  // El ruteo PCB no es un afinado de la curva: es otro renderizador. Por eso va
+  // en Modo y no entre los mandos, y por eso se ve en Simple y en Advanced.
+  const pcbRow = makeToggle("pcbEnabled", "PCB routing",
+    "Draws wires as right-angled traces that go around the nodes instead of curving over them, like a circuit board. " +
+    "The curve controls below stop applying while it is on.", true)
+  pcbRow.querySelector("input").addEventListener("change", () => buildPanel(el))
+  secMode.appendChild(pcbRow)
   wrap.appendChild(secMode)
+
+  // — PCB (sólo cuando el ruteo manda; sus mandos no significan nada apagado) —
+  if (state.pcbEnabled) {
+    const secPcb = makeSection("PCB Routing")
+    secPcb.appendChild(makeSlider("cornerRadius", "Corner radius", 0, 30, 1))
+    wrap.appendChild(secPcb)
+  }
 
   // — REROUTE DOT (always visible in both modes) —
   const secDotTop = makeSection("Reroute Dot")
@@ -1211,49 +1156,81 @@ function buildPanel(el) {
   const secPreset = makeSection("Preset")
   const presetGroup = document.createElement("div")
   presetGroup.className = "nkd-panel-presets"
-  for (const name of Object.keys(PRESETS)) {
-    const btn = document.createElement("button")
-    btn.className = "nkd-panel-preset-btn"
-    btn.textContent = name
-    btn.addEventListener("click", () => {
-      applyPreset(name)
-      syncPanelFromState()
-      presetBtns.forEach(b => b.classList.toggle("nkd-active", b === btn))
+
+  // Se redibuja entero al guardar o borrar: son cuatro botones, no compensa
+  // parchear la lista a mano.
+  function renderPresets() {
+    presetGroup.textContent = ""
+    presetBtns.length = 0
+    const mios = userPresets()
+
+    for (const name of Object.keys(allPresets())) {
+      const propio = name in mios
+      const btn = document.createElement("button")
+      btn.className = "nkd-panel-preset-btn"
+      btn.textContent = name
+      btn.title = propio
+        ? "Click to apply · right-click to delete"
+        : "The wires exactly as ComfyUI draws them, with no styling"
+      btn.addEventListener("click", () => {
+        applyPreset(name)
+        syncPanelFromState()
+        presetBtns.forEach(b => b.classList.toggle("nkd-active", b === btn))
+      })
+      if (propio) {
+        btn.addEventListener("contextmenu", (e) => {
+          e.preventDefault()
+          if (!confirm(`Delete preset "${name}"?`)) return
+          deleteUserPreset(name)
+          renderPresets()
+        })
+      }
+      presetBtns.push(btn)
+      presetGroup.appendChild(btn)
+    }
+
+    const save = document.createElement("button")
+    save.className = "nkd-panel-preset-btn nkd-panel-preset-save"
+    save.textContent = "+ Save current settings"
+    save.title = "Store the current wire shape under a name you choose"
+    save.addEventListener("click", () => {
+      const name = prompt("Preset name")?.trim()
+      if (!name) return
+      if (name in PRESETS) { alert(`"${name}" is a built-in preset — pick another name.`); return }
+      if (name in userPresets() && !confirm(`Overwrite "${name}"?`)) return
+      saveUserPreset(name)
+      renderPresets()
+      const btn = presetBtns.find(b => b.textContent === name)
+      if (btn) btn.classList.add("nkd-active")
     })
-    presetBtns.push(btn)
-    presetGroup.appendChild(btn)
+    presetGroup.appendChild(save)
+
+    const activo = detectActivePreset()
+    if (activo) presetBtns.forEach(b => b.classList.toggle("nkd-active", b.textContent === activo))
   }
+
+  renderPresets()
   secPreset.appendChild(presetGroup)
   wrap.appendChild(secPreset)
-
-  // Mark the active preset on load if state matches one exactly
-  const activeOnLoad = detectActivePreset()
-  if (activeOnLoad) {
-    const idx = Object.keys(PRESETS).indexOf(activeOnLoad)
-    if (idx >= 0) presetBtns[idx]?.classList.add("nkd-active")
-  }
 
   // — WIRE SHAPE —
   const secShape = makeSection("Wire Shape")
   secShape.append(
     makeSlider("handleFactor",      "Wire curvature",       0.1, 2.0,  0.1 ),
-    makeSlider("socketMin",         "Socket min",           3,   50,   1   ),
-    makeSlider("socketMax",         "Socket max",           10,  200,  5   ),
     makeSlider("nonLinear",         "Elasticity",           0.1, 2.0,  0.1 ),
-    makeSlider("tailGrowth",        "Long-distance growth", 0,   0.3,  0.01),
-    makeSlider("verticalTightness", "Vertical tightness",   0,   1.0,  0.05),
-    makeSlider("verticalEscapeScale", "Vertical escape",     0,   1.0, 0.05),
+    makeSlider("distFactor",        "Distance stretch",     0,   2.0,  0.05),
+    makeSlider("minSplineOffset",   "Minimum handle",       0,   60,   1   ),
+    makeSlider("maxHandleRatio",    "Handle ceiling",       0,   1.5,  0.05),
     makeSlider("nodeBodyClearance",   "Node body clearance", 0,   80,  2   ),
+    makeSlider("stubLength",        "Socket stub",          0,   60,   1   ),
   )
   wrap.appendChild(secShape)
 
   // — PULL PER ENDPOINT —
   const secPull = makeSection("Pull Per Endpoint")
   secPull.append(
-    makeSlider("nodeOutFactor",    "Node outgoing",    0.1, 2.0, 0.1),
-    makeSlider("nodeInFactor",     "Node incoming",    0.1, 2.0, 0.1),
-    makeSlider("rerouteOutFactor", "Reroute outgoing", 0.1, 2.0, 0.1),
-    makeSlider("rerouteInFactor",  "Reroute incoming", 0.1, 2.0, 0.1),
+    makeSlider("nodeFactor",    "Node ends",    0.1, 2.0, 0.1),
+    makeSlider("rerouteFactor", "Reroute ends", 0.1, 2.0, 0.1),
   )
   wrap.appendChild(secPull)
 
@@ -1282,6 +1259,8 @@ function buildPanel(el) {
   // Inversion pull — visually disabled when invertBackward is off
   const invPullRow = makeSlider("inversionPull", "Inversion pull", 10, 150, 5)
   secBack.appendChild(invPullRow)
+  secBack.appendChild(makeSlider("backwardStretch", "Backward stretch", 0, 1.0, 0.05))
+  secBack.appendChild(makeSlider("crossingMargin",  "Crossing width",   0, 300, 10  ))
 
   function setInvPullEnabled(on) {
     invPullRow.classList.toggle("nkd-panel-disabled", !on)
@@ -1295,12 +1274,6 @@ function buildPanel(el) {
     clearPreset()
   })
 
-  secBack.append(
-    makeSlider("pushOutMin", "Clearance min", 0, 150, 5),
-    makeSlider("pushOutMax", "Clearance max", 0, 200, 5),
-    makeSelect("crossingBehaviorNodes",    "Node crossing",    ["Natural Loop", "Hard Push Out"]),
-    makeSelect("crossingBehaviorReroutes", "Reroute crossing", ["Natural Loop", "Hard Push Out"]),
-  )
   wrap.appendChild(secBack)
 
   wrap.appendChild(resetBtn)

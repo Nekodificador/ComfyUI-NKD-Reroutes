@@ -150,6 +150,21 @@ test("el radio nunca se pasa de la mitad del lado más corto", () => {
   assert.equal(fitRadius([0, 0], [100, 0], [100, 100], 0), 0, "radio 0 = esquina viva")
 })
 
+test("un lado que muere en un extremo del cable cabe entero", () => {
+  // El rabito (24 px) no lo comparte con ninguna otra esquina: ahí caben 24,
+  // no 12. Es el codo que más se ve, justo al salir del socket.
+  assert.equal(fitRadius([0, 0], [24, 0], [24, 300], 20, true, false), 20)
+  assert.equal(fitRadius([0, 0], [24, 0], [24, 300], 40, true, false), 24, "el lado entero, no la mitad")
+  assert.equal(fitRadius([0, 0], [24, 0], [24, 300], 40), 12, "sin extremo, sigue mandando la mitad")
+})
+
+test("el primer y el último codo redondean con el lado entero", () => {
+  const t = trazoFalso()
+  emitRoute(t, [[0, 0], [24, 0], [24, 300], [300, 300]], 40)
+  assert.equal(t.ops[1][5], 24, "primer codo: el rabito entero")
+  assert.equal(t.ops[2][5], 40, "codo interior: hay sitio de sobra a los dos lados")
+})
+
 // Un trazo falso que apunta lo que se le pide: así se comprueba lo que se dibuja
 // sin necesidad de un canvas.
 function trazoFalso() {
@@ -336,6 +351,31 @@ test("mover el mando invalida las rutas guardadas", () => {
   beginFrame(g, { avoidance: 1 })                      // mismo grafo, otro mando
   const despues = routeFor("mando", [0, 0], [800, 0])
   assert.notDeepEqual(despues, antes, "la ruta guardada no puede sobrevivir al cambio")
+})
+
+// ── El lado libre mira a la punta del rabito, no al socket ──────────────────
+//
+// Un socket de nodo no está donde entra su cable: una entrada se entra por 24 px
+// a su izquierda. Con un reroute casi en la misma columna, el signo de dx elegía
+// un lado y la convención del socket exigía el contrario: el cable salía, bajaba,
+// se pasaba de largo y volvía. Ese es el pico.
+test("un reroute justo encima de su destino baja sin pasarse de largo", () => {
+  beginFrame(grafo())
+  const a = [105, 242], b = [118, 370]      // 13 px de nada a la derecha
+  const pts = routeFor("picoEntrada", a, b, { startIsReroute: true })
+  const maxX = Math.max(...pts.map(p => p[0]))
+  assert.ok(maxX <= b[0] + 0.01,
+    `el cable se pasa de largo hasta x=${maxX} y vuelve: ${JSON.stringify(pts)}`)
+})
+
+test("un reroute justo debajo de una salida se entra por donde viene el cable", () => {
+  beginFrame(grafo())
+  const a = [1047, 110], b = [1060, 242]    // la salida cae 13 px a la izquierda
+  const pts = routeFor("picoSalida", a, b, { endIsReroute: true })
+  // La salida saca su rabito a la derecha, más allá del reroute: entrarlo por la
+  // izquierda obliga a bajar antes, pasarse y volver.
+  assert.ok(pts.at(-2)[0] >= b[0] - 0.01,
+    `el cable entra al reroute por el lado equivocado: ${JSON.stringify(pts)}`)
 })
 
 // ── Pasillos compartidos ────────────────────────────────────────────────────

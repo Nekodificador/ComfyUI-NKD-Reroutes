@@ -353,8 +353,19 @@ export function routeFor(id, a, b, opts = {}) {
   const entradaPastilla = Boolean(graph && link && esPastilla(graph.getNodeById?.(link.target_id)))
   const salidaLibre  = startIsReroute || salidaPastilla
   const entradaLibre = endIsReroute   || entradaPastilla
-  const startDir = salidaLibre  ? (b[0] >= a[0] ? "right" : "left")  : "right"
-  const endDir   = entradaLibre ? (b[0] >= a[0] ? "left"  : "right") : "left"
+  // El lado libre mira a la PUNTA DEL RABITO del otro extremo, no a su socket.
+  //
+  // Un socket de nodo no está donde entra su cable: una salida entra por 24 px a
+  // su derecha y una entrada por 24 px a su izquierda. Con un reroute casi en la
+  // misma columna que el socket, el signo de dx elige un lado y la convención
+  // del socket exige el contrario: el cable sale, baja, se pasa de largo y
+  // vuelve — el pico que se ve en los reroutes que quedan justo encima de su
+  // destino. Mirando la punta, los dos extremos apuntan al mismo sitio y el
+  // cable baja de una vez, que es lo que hace la Bézier al girar el handle.
+  const tipA = salidaLibre  ? a[0] : a[0] + STUB
+  const tipB = entradaLibre ? b[0] : b[0] - STUB
+  const startDir = salidaLibre  ? (tipB >= a[0] ? "right" : "left")  : "right"
+  const endDir   = entradaLibre ? (tipA <= b[0] ? "left"  : "right") : "left"
 
   // Los carriles son de los lados de NODO. Un extremo en reroute se lleva el
   // rabito de siempre: los sockets que guarda el cable son los de la CADENA
@@ -576,11 +587,16 @@ function strand(graph, link, a, b) {
 // cortos: si vale más que la mitad de un lado, la curva de esta esquina invade
 // la de la siguiente y el trazo se retuerce. La mitad es el límite exacto en el
 // que dos esquinas consecutivas se tocan sin solaparse.
-export function fitRadius(prev, corner, next, radius) {
+//
+// Pero un lado que muere en un EXTREMO del cable no lo comparte con nadie: ahí
+// cabe entero. Importa justo donde más se nota — el primer giro sale a 24 px
+// del socket (el rabito), y a mitades ese codo no podía redondear más de 12
+// aunque el mando estuviera al máximo.
+export function fitRadius(prev, corner, next, radius, prevEsExtremo = false, nextEsExtremo = false) {
   if (radius <= 0) return 0
   const antes   = Math.abs(corner[0] - prev[0]) + Math.abs(corner[1] - prev[1])
   const despues = Math.abs(next[0] - corner[0]) + Math.abs(next[1] - corner[1])
-  return Math.min(radius, antes / 2, despues / 2)
+  return Math.min(radius, prevEsExtremo ? antes : antes / 2, nextEsExtremo ? despues : despues / 2)
 }
 
 // Vuelca una ruta en un trazo ya empezado. Vale igual para un ctx y para un
@@ -593,7 +609,7 @@ export function fitRadius(prev, corner, next, radius) {
 export function emitRoute(path, pts, radius = 0) {
   path.moveTo(pts[0][0], pts[0][1])
   for (let i = 1; i < pts.length - 1; i++) {
-    const r = fitRadius(pts[i - 1], pts[i], pts[i + 1], radius)
+    const r = fitRadius(pts[i - 1], pts[i], pts[i + 1], radius, i === 1, i === pts.length - 2)
     path.arcTo(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], r)
   }
   const last = pts[pts.length - 1]

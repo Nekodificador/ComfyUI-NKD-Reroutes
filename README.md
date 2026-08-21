@@ -1,8 +1,10 @@
 # ComfyUI-NKD-Reroutes
 
-A ComfyUI extension that changes how reroute nodes are visually rendered, making them behave more similarly to Blender's node editor. Wire tension is fully controlled by this extension, giving you smooth, customizable Bézier curves instead of the default style.
+Wires and layout for ComfyUI. Two ways to draw your connections — smooth Bézier curves in the
+spirit of Blender's node editor, or right-angled PCB traces that go around your nodes — plus a
+magnet that lines nodes up while you drag them.
 
-Several configuration parameters are available in the **Settings** panel so each user can adapt the look to their preference. Presets with pre-configured parameters are also included for quick setup.
+Everything is adjustable from the **NKD Wires** sidebar tab, live, while you look at your graph.
 
 ### Result
 https://github.com/user-attachments/assets/a9bb4de0-be9e-44e1-ad20-349902a6c362
@@ -10,18 +12,93 @@ https://github.com/user-attachments/assets/a9bb4de0-be9e-44e1-ad20-349902a6c362
 ### Inspiration
 https://github.com/user-attachments/assets/18210fcb-15b7-4476-8a25-f4862efe3186
 
-
 ---
 
 ## Installation
 
 1. Clone or copy this folder into your `ComfyUI/custom_nodes/` directory.
 2. Restart ComfyUI.
-3. Open **Settings → NKD Reroutes** to configure, or the **NKD Wires** sidebar tab.
+3. Open the **NKD Wires** sidebar tab, or **Settings → NKD Reroutes**.
+
+Works with the classic canvas and with **Nodes 2.0**.
 
 ---
 
-## Node Magnetism
+## Wire styles
+
+### Simple and Advanced
+
+**Simple** only restyles the wires that touch a reroute dot; everything else keeps ComfyUI's
+normal look. **Advanced** hands every wire to this extension and unlocks the controls below.
+
+### Presets
+
+**Classic Comfy** ships as a reference — it is exactly what your wires look like without this
+extension installed, so you can always flip back and compare.
+
+Any look you like, you save yourself: tune the sliders, hit **+ Save current settings** and name
+it. Right-click a preset to delete it. Your presets travel with your ComfyUI profile, so they are
+there in every tab and survive a browser change. They store the curve shape only — not the reroute
+dot size, not the mode, not the magnet.
+
+### Curve controls
+
+| Setting | Range | Default | What it does |
+|---|---|---|---|
+| Wire curvature | 0.1 – 2.0 | 1.0 | Overall roundness. Low is almost straight, high is wide and sweeping. |
+| Elasticity | 0.1 – 2.0 | 1.15 | How different short and long wires look. Above 1, long wires open up while short ones stay tight. |
+| Distance stretch | 0 – 2.0 | 0.25 | Grows every curve in proportion to how far apart the nodes are. This is what makes long wires look stretched instead of flat. |
+| Minimum handle | 0 – 60 px | 10 | Floor for every curve. Too high and every wire ends up the same shape whatever its length. |
+| Handle ceiling | 0 – 1.5 | 0.5 | Caps each curve to this fraction of the horizontal gap. Raise it and short, steep wires start doubling back on themselves into an S. |
+| Node body clearance | 0 – 80 px | 24 | Keeps some curve when two nodes sit almost on top of each other, so the wire does not vanish into an edge. |
+| Socket stub | 0 – 60 px | 0 | Length of a straight tail leaving the socket before the curve starts. Reroute dots are left alone, so a chain still reads as one run. |
+| Node pull | 0.1 – 2.0 | 1.0 | Extra roundness at the ends touching a node socket. |
+| Reroute pull | 0.1 – 2.0 | 0.8 | The same, for ends touching a reroute dot. Below Node pull keeps chains of reroutes tight. |
+| Invert on backward | on/off | on | When a wire has to travel backwards, curl it into a C loop instead of cutting across the nodes. |
+| Inversion pull | 10 – 150 px | 40 | How wide that C loop is, regardless of distance. |
+| Backward stretch | 0 – 1.0 | 0.25 | How much the backward loop grows with distance. |
+| Crossing width | 0 – 300 px | 120 | How much travel the forward-to-backward transition is spread over. Small values make the loop pop in abruptly. |
+
+### Reroute dot
+
+| Setting | Range | Default | What it does |
+|---|---|---|---|
+| Dot size | 3 – 15 px | 5 | How big the dot looks. Never goes below 3 so it stays easy to click, and the hitbox stays generous whatever the size. |
+| Handle offset | 10 – 120 px | 40 | Simple mode only: how far the curve reaches out of a reroute dot. |
+
+---
+
+## PCB routing
+
+Flip **PCB routing** on and wires stop curving over your nodes: they run in right angles and go
+*around* them, like traces on a circuit board.
+
+It replaces the curve engine entirely while it is on — the curve controls above stop applying —
+and it works on the classic canvas and on Nodes 2.0. Clicking a wire and its centre marker follow
+the trace, and dragging a node previews exactly what you get when you drop it.
+
+What it does on its own, without any setting:
+
+- Wires leaving the same side of a node **fan out into their own lanes** instead of stacking.
+- Wires running between the same two nodes travel together as a **ribbon**, in parallel, never
+  crossing each other.
+- Unrelated wires that end up sharing a corridor are **spread apart** so they do not draw on top
+  of one another.
+
+| Setting | Range | Default | What it does |
+|---|---|---|---|
+| Corner radius | 0 – 30 px | 8 | How rounded the corners are. 0 for sharp. Tight zig-zags stay clean whatever you set it to. |
+| Node avoidance | 1 – 20 | 8 | How hard a wire tries to go around a node instead of under it. At 1 wires ignore nodes and run straight through, which dense graphs often prefer. Turn it up and wires keep clear, but they zig-zag more to do it. |
+| Ignore nodes under | 0 – 100 px | 40 | Nodes shorter than this stop pushing wires around. Set/Get pills, collapsed nodes and other small helpers can then sit anywhere — beside a node, behind one — without sending every wire on a detour. 0 makes every node count. |
+| Spread shared lanes | on/off | on | The corridor spreading described above. Turn it off to keep every wire exactly where the routing put it. |
+
+Small helper nodes are also **entered from whichever side the wire arrives on**, instead of
+wrapping all the way around to come in from the left. A Set node placed to the left of its source
+used to cost the wire a full lap.
+
+---
+
+## Node magnetism
 
 Hold **Shift** while dragging and nodes line themselves up against their neighbours.
 
@@ -36,7 +113,7 @@ Six behaviours, resolved per axis:
 |---|---|
 | **Column** | Shares the left edge and stacks below with a small gap. |
 | **Row** | Shares the top edge and abuts to the right with a larger gap. |
-| **Straight cable** | Aligns a socket with the adjacent point on its wire — another socket, or a reroute — so that segment runs straight. |
+| **Straight cable** | Leaves that stretch of wire running dead straight. Against another node or against a reroute, Set/Get pills included. |
 | **Gap fill** | Dropped between two stacked nodes, it centres itself in the gap. |
 | **Column width** | Snapping into a column also adopts that column's width. Only ever widens: a node is never squeezed below the minimum its widgets need. |
 | **Reroutes** | A reroute squares its Y against the ends of its own cable, and aligns with other reroutes. |
@@ -44,28 +121,39 @@ Six behaviours, resolved per axis:
 When two rules compete on the same axis, a straight cable wins over filling a gap, and both
 win over aligning an edge. Ties inside a tier go to whichever is nearest.
 
+Groups play by the same rules among themselves, and resizing a group or a node from its corner
+snaps that edge against the neighbours too. Each kind only snaps to its own: nodes to nodes,
+groups to groups.
+
 Nodes with **Pin** enabled neither move nor act as references. Dragging a multi-selection
 snaps the bounding box and moves everything together. Releasing Shift mid-drag backs out.
-Works with both the classic renderer and **Nodes 2.0**.
 
 Far from any neighbour, Shift still gives you ComfyUI's usual snap-to-grid — the magnet
 simply takes over when there is something to align against.
 
-### Magnetism Settings
-
-In the **NKD Wires** sidebar tab, visible in both Simple and Advanced modes.
-
-| Setting | Range | Default | Description |
+| Setting | Range | Default | What it does |
 |---|---|---|---|
-| Magnet Radius | 5 – 60 px | 20 | How close a neighbour has to be before the magnet grabs. Larger values reach further but jump harder when they let go. |
-| Magnet Vertical Gap | 0 – 60 px | 12 | Gap left when stacking a node below another in the same column. |
-| Magnet Horizontal Gap | 0 – 120 px | 36 | Gap left when abutting a node beside another in the same row. |
-| Show guides | on/off | on | Draws the destination ghost and the reference lines while snapping. |
+| Snap with Shift | on/off | on | The magnet itself. |
+| Magnet radius | 5 – 60 px | 20 | How close a neighbour has to be before the magnet grabs. Larger reaches further but jumps harder when it lets go. |
+| Magnet vertical gap | 0 – 60 px | 12 | Gap left when stacking below another node in the same column. |
+| Magnet horizontal gap | 0 – 120 px | 36 | Gap left when abutting beside another node in the same row. |
+| Show guides | on/off | on | The destination ghost and the reference lines. |
 | Match column width | on/off | on | Whether snapping into a column also adopts its width. |
 
 ---
 
-## Using the Sidebar Sliders
+## Nodes
+
+| Setting | Default | What it does |
+|---|---|---|
+| Collapse keeps wires | on | Collapsing a node normally yanks its wires upwards, because a collapsed node is just its title bar. This shifts the node so its first socket stays exactly where it was, and puts it back when you expand it again. **Classic canvas only.** |
+
+Switching from Nodes 2.0 back to the classic renderer also trims every node back to its minimum
+height, which removes the empty band the Vue layout leaves behind.
+
+---
+
+## Using the sidebar sliders
 
 Every slider in the **NKD Wires** tab can be set three ways:
 
@@ -74,105 +162,13 @@ Every slider in the **NKD Wires** tab can be set three ways:
   curvature lands on 0.1 / 0.2, a pixel distance on 10 / 20.
 - **Click the number** and type an exact value. Enter confirms, Escape cancels.
 
----
-
-## Settings Reference
-
-All settings are found under the **NKD Reroutes** section in the ComfyUI Settings panel.
-
-### Wire Style Preset
-
-| Option | Description |
-|---|---|
-| `Custom` | No preset applied — individual sliders control everything. |
-| `Clean & Tight` | Short, controlled curves with hard pushouts on backwards wires. Good for dense graphs. |
-| `Flowy & Organic` | Long, sweeping curves with natural loops. Good for spacious, artistic graphs. |
-| `Straight Business` | Minimal curvature, almost straight wires. Maximum readability. |
-
-Choosing a preset automatically updates all sliders and combos below. You can then fine-tune any individual value without losing the preset as a starting point — the selector will simply show `Custom`.
+Every setting also appears under **NKD Reroutes** in the ComfyUI Settings panel.
 
 ---
 
-### Curvature Sliders
+## Credits
 
-#### Wire Curvature
-**Range:** 0.1 – 2.0 &nbsp;|&nbsp; **Default:** 0.5
-
-The global curvature multiplier for all wires. Controls how rounded the Bézier arcs are between any two connected points. Higher values produce rounder, more exaggerated curves; lower values make wires approach straight lines.
-
----
-
-#### Node Outgoing Pull
-**Range:** 0.1 – 2.0 &nbsp;|&nbsp; **Default:** 0.5
-
-An additional curvature multiplier applied specifically to the handle on the **output** side of a regular node. Increasing this pulls the wire further outward as it leaves the node's socket, making the departure angle more pronounced.
-
----
-
-#### Node Incoming Pull
-**Range:** 0.1 – 2.0 &nbsp;|&nbsp; **Default:** 0.5
-
-Same as Node Outgoing Pull, but applied to the **input** side of a regular node. Controls how strongly the wire bends as it arrives at an input socket.
-
----
-
-#### Reroute Outgoing Pull
-**Range:** 0.1 – 2.0 &nbsp;|&nbsp; **Default:** 0.5
-
-Extra curvature multiplier for wires **leaving** a reroute dot. Independent from node pull values, so reroutes can have a different wire feel than direct node-to-node connections.
-
----
-
-#### Reroute Incoming Pull
-**Range:** 0.1 – 2.0 &nbsp;|&nbsp; **Default:** 0.5
-
-Extra curvature multiplier for wires **arriving** at a reroute dot.
-
----
-
-#### Backward Wire Clearance
-**Range:** 20 – 200 px &nbsp;|&nbsp; **Default:** 30
-
-Only active when the crossing behavior is set to **Hard Push Out**. Defines the fixed horizontal distance (in pixels) that a backwards-going wire is pushed sideways to prevent it from clipping through the source node. Higher values create a more visible detour; lower values keep the wire closer.
-
----
-
-#### Reroute Dot Size
-**Range:** 3 – 15 px &nbsp;|&nbsp; **Default:** 5
-
-The visual radius of the reroute dot on the canvas. The minimum value is enforced at 3 px to keep the dot always clickable — the hitbox is also kept generous regardless of visual size. When the dot is smaller than 5 px, a subtle ghost ring is drawn around it on hover to help locate it.
-
----
-
-### Crossing Behavior
-
-These two settings control what happens when a wire travels **backwards** (right to left) — a situation that normally causes wires to overlap or cross through nodes.
-
-#### Node Backward Crossing
-
-| Option | Description |
-|---|---|
-| `Natural Loop` | The wire arcs freely in a C-shaped loop. Looks organic but may overlap other elements. |
-| `Hard Push Out` | The wire is pushed a fixed distance horizontally (set by **Backward Wire Clearance**) to route around the source node. Cleaner but more rigid. |
-
----
-
-#### Reroute Backward Crossing
-
-Same behavior options as **Node Backward Crossing**, but applied independently to wires going backwards from a **reroute dot**. This lets you mix styles — for example, natural loops on node wires while reroutes stay rigid.
-
----
-
-## Preset Details
-
-| Setting | Clean & Tight | Flowy & Organic | Straight Business |
-|---|---|---|---|
-| Wire Curvature | 0.35 | 0.70 | 0.20 |
-| Node Outgoing Pull | 0.80 | 1.20 | 0.50 |
-| Node Incoming Pull | 0.80 | 1.20 | 0.50 |
-| Reroute Outgoing Pull | 0.80 | 1.30 | 0.50 |
-| Reroute Incoming Pull | 0.80 | 1.30 | 0.50 |
-| Node Backward Crossing | Hard Push Out | Natural Loop | Hard Push Out |
-| Reroute Backward Crossing | Hard Push Out | Natural Loop | Hard Push Out |
-| Backward Wire Clearance | 60 px | 80 px | 40 px |
-| Reroute Dot Size | 4 px | 6 px | 3 px |
+The orthogonal routing engine behind PCB mode comes from
+[comfyui-cable-management](https://github.com/vtokic/comfyui-cable-management) by Vedran Aberle
+Tokić, used under the MIT licence. Go and have a look at it — it does a great deal more with the
+idea than this extension does.

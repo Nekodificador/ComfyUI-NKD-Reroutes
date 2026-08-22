@@ -3,6 +3,8 @@ import { installMagnet } from "./magnet/dragAdapter.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
+import { computeArrange } from "./layout/arrange.js"
+import { rectOf } from "./magnet/snapTargets.js"
 import { beginFrame, emitRoute, routeFor } from "./route/pcb.js"
 import { DEFAULTS, PRESETS, PRESET_KEYS, SETTING_ID_MAP } from "./spline/config.js"
 
@@ -31,6 +33,17 @@ const state = { ...DEFAULTS }
 
 app.registerExtension({
   name: "NKD Reroutes",
+  commands: [
+    {
+      id: "nkd.reroutes.autoArrange",
+      label: "NKD Reroutes: Auto-arrange workflow",
+      function: () => applyArrange(state),
+    },
+  ],
+  // Shift+A está libre en ComfyUI (sólo existen 'a' y ctrl+a).
+  keybindings: [
+    { combo: { key: "A", shift: true }, commandId: "nkd.reroutes.autoArrange" },
+  ],
   setup() {
     registerSettings()
     patchLiteGraph()
@@ -288,6 +301,143 @@ function redraw() {
   // más ensuciaba el fondo: pasar el ratón por encima del canvas, típicamente.
   // Desde el panel eso se notaba como que los sliders no hacían nada en vivo.
   app.graph?.setDirtyCanvas(true, true)
+}
+
+// ─── Auto-arrange ──────────────────────────────────────────────────────────
+// Lee el grafo a un snapshot plano, deja que computeArrange (motor puro) decida
+// las posiciones, y las aplica en UNA transacción para que un solo Ctrl+Z lo
+// revierta todo (igual que el imán). Sólo sigue links VISIBLES: un input.link
+// que no resuelve a un objeto con ambos extremos en el workSet no genera arista,
+// así que Set/Get y UseEverywhere (que no viven en graph.links) quedan fuera.
+
+function applyArrange(state) {
+  const canvas = app.canvas
+  const graph = canvas?.graph || app.graph
+  if (!graph) return
+
+  const links = graph.links
+  const getLink = (id) => (links?.get ? links.get(id) : links?.[id])
+
+  // Alcance: selección si la hay. Al agrupar loaders se opera sobre TODO el grafo
+  // (los loaders y sus canales son globales) y se ignora la selección.
+  const selIds = new Set([...(canvas?.selectedItems || [])].filter(it => it?.inputs !== undefined).map(n => n.id))
+  const useSelection = selIds.size > 0
+
+  graph.beforeChange()
+  try {
+    // 1) Alcance.
+    const allNodes = graph.nodes || graph._nodes || []
+    const withInputs = allNodes.filter(n => n?.inputs !== undefined)
+    const workNodes = useSelection ? withInputs.filter(n => selIds.has(n.id)) : withInputs
+    if (workNodes.length < 2) return
+    const inWork = new Set(workNodes.map(n => n.id))
+
+    // 2) Aristas visibles (ambos extremos en el workSet).
+    const edges = []
+    for (const n of workNodes) {
+      for (const [slot, input] of (n.inputs || []).entries()) {
+        const link = input?.link != null ? getLink(input.link) : null
+        if (!link) continue
+        if (!inWork.has(link.origin_id) || !inWork.has(n.id)) continue
+        edges.push({ from: link.origin_id, to: n.id, toSlot: slot, fromSlot: link.origin_slot ?? 0 })
+      }
+    }
+
+    // 3) Rescalar nodos enormes (previews, save) para que no acaparen espacio.
+    for (const n of workNodes) shrinkIfHuge(n)
+
+    // 4) Snapshot con los tamaños YA rescalados, para que el layout cuadre.
+    const nodes = workNodes.map(n => {
+      const r = rectOf(n)
+      // Offset REAL de cada socket respecto al top del nodo (intrínseco a la geometría,
+      // no depende de dónde esté). Con esto el motor alinea a socket de forma exacta,
+      // incluso en colapsados / Nodes 2.0 / nodos con widgets, sin constantes.
+      const socketOff = (isInput, slot) => {
+        try { return n.getConnectionPos(isInput, slot, [0, 0])[1] - n.pos[1] } catch { return null }
+      }
+      return {
+        id: n.id,
+        type: n.type,
+        inputs: (n.inputs || []).map(i => ({ name: i?.name || "", type: i?.type || "" })),
+        inOff: (n.inputs || []).map((_, i) => socketOff(true, i)),
+        outOff: (n.outputs || []).map((_, i) => socketOff(false, i)),
+        pos: [n.pos[0], n.pos[1]],
+        w: r?.w ?? n.size?.[0] ?? 200,
+        h: r?.h ?? n.size?.[1] ?? 80,
+        pinned: Boolean(n.pinned),
+        collapsed: Boolean(n.flags?.collapsed),
+      }
+    })
+
+    const { nodeMoves } = computeArrange({ nodes, edges }, { gapX: state.magnetGapX, gapY: state.magnetGapY })
+
+    for (const [id, [x, y]] of nodeMoves) {
+      const node = graph.getNodeById?.(id)
+      if (!node) continue
+      if (typeof node.setPos === "function") node.setPos(x, y)
+      else node.pos = [x, y]
+    }
+    repositionReroutes(graph, getLink, inWork)
+    for (const g of graph.groups || []) g.recomputeInsideNodes?.()
+  } finally {
+    graph.afterChange()
+  }
+  canvas?.setDirty?.(true, true)
+}
+
+// Un nodo de preview/save enorme puede ocupar toda la altura del grafo. Se topa a
+// un tamaño razonable — sin bajar de su mínimo real (computeSize), y sin tocar los
+// colapsados. Sólo encoge.
+const ARRANGE_MAX_W = 400
+const ARRANGE_MAX_H = 400
+function shrinkIfHuge(node) {
+  if (!node || node.flags?.collapsed || typeof node.setSize !== "function") return
+  const w = node.size?.[0], h = node.size?.[1]
+  if (w == null || h == null) return
+  const min = typeof node.computeSize === "function" ? node.computeSize() : [0, 0]
+  const nw = Math.max(min[0] || 0, Math.min(w, ARRANGE_MAX_W))
+  const nh = Math.max(min[1] || 0, Math.min(h, ARRANGE_MAX_H))
+  if (nw !== w || nh !== h) node.setSize([nw, nh])
+}
+
+// Tras mover los nodos, los reroutes del workflow quedan colgando lejos de su cable:
+// hay que recolocarlos sobre él. Cada cadena de reroutes se reparte equiespaciada
+// entre los dos extremos (socket origen ↔ socket destino) ya movidos. Robusto: si el
+// frontend no expone getReroutes(), se trata como un reroute suelto; nunca lanza.
+function repositionReroutes(graph, getLink, inWork) {
+  const reroutes = graph.reroutes
+  if (!reroutes?.values) return
+  const socket = (node, isInput, slot) => { try { return node.getConnectionPos(isInput, slot, [0, 0]) } catch { return node.pos ? [node.pos[0], node.pos[1]] : null } }
+  const done = new Set()
+  for (const rr of reroutes.values()) {
+    if (done.has(rr.id)) continue
+    try {
+      // rr.firstLink ES un objeto link (no un id) —así lo usa snapTargets—; rr.linkIds
+      // son ids. Resolver por linkIds y caer a firstLink como objeto.
+      const linkId = [...(rr.linkIds ?? [])][0]
+      let link = linkId != null ? getLink(linkId) : null
+      if ((!link || link.origin_id == null) && rr.firstLink?.origin_id != null) link = rr.firstLink
+      if (!link || link.origin_id == null) continue
+      const src = graph.getNodeById?.(link.origin_id)
+      const dst = graph.getNodeById?.(link.target_id)
+      if (!src || !dst) continue
+      // Sólo si ambos extremos entran en el arrange; si no, no sabemos dónde va.
+      if (inWork && (!inWork.has(link.origin_id) || !inWork.has(link.target_id))) continue
+      const a = socket(src, false, link.origin_slot)
+      const b = socket(dst, true, link.target_slot)
+      if (!a || !b) continue
+      // Cadena ordenada de reroutes del enlace; si no hay API, este reroute suelto.
+      const rawChain = rr.getReroutes?.() ?? []
+      const chain = rawChain.length ? rawChain : [rr]
+      const n = chain.length
+      chain.forEach((dot, i) => {
+        if (!dot) return
+        const t = (i + 1) / (n + 1)
+        dot.pos = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+        done.add(dot.id)
+      })
+    } catch { /* reroutes son cosmética: si falla, los nodos ya están bien colocados */ }
+  }
 }
 
 // ─── Reroute Detection ───────────────────────────────────────────────────────
@@ -1135,6 +1285,17 @@ function buildPanel(el) {
     "title bar. This shifts the node so its first socket stays exactly where it was — and puts it " +
     "back when you expand it again. Classic canvas only: with Nodes 2.0 the sockets are placed " +
     "by a different layout and this does not reach them.", true))
+
+  const arrangeBtn = document.createElement("button")
+  arrangeBtn.className = "nkd-panel-reset"
+  arrangeBtn.textContent = "Auto-arrange"
+  arrangeBtn.title = "Reorders nodes around the KSampler: model pipeline on top, conditioning " +
+    "in the middle, latent at the bottom, outputs to the right. Chained samplers line up left→right. " +
+    "Works on the selection if there is one, otherwise the whole graph. One Ctrl+Z undoes it. " +
+    "Only nodes joined by visible wires are moved — Set/Get and UseEverywhere links are ignored."
+  arrangeBtn.addEventListener("click", () => applyArrange(state))
+  secNodes.appendChild(arrangeBtn)
+
   wrap.appendChild(secNodes)
 
   // — REROUTE DOT (always visible in both modes) —

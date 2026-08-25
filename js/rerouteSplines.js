@@ -2,13 +2,14 @@ import { app } from "../../scripts/app.js"
 import { installMagnet } from "./magnet/dragAdapter.js"
 import { installQuickConnect } from "./connect/quickConnect.js"
 import { installQuickTemplates } from "./templates/quickTemplates.js"
+import { installNodeRuntime, clearRuntimeBadges } from "./runtime/nodeRuntime.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
 import { computeArrange } from "./layout/arrange.js"
 import { rectOf } from "./magnet/snapTargets.js"
 import { beginFrame, emitRoute, routeFor } from "./route/pcb.js"
-import { DEFAULTS, PRESETS, PRESET_KEYS, SETTING_ID_MAP } from "./spline/config.js"
+import { DEFAULTS, PRESETS, PRESET_KEYS, SETTING_ID_MAP, NKD_ACCENT } from "./spline/config.js"
 
 // ─── NKD Reroutes — Rewritten v2.0 ──────────────────────────────────────────
 //
@@ -55,6 +56,7 @@ app.registerExtension({
     installMagnet(state)
     installQuickConnect(state)
     installQuickTemplates()
+    installNodeRuntime(state)
     installShrinkOnLegacy()
     installCollapseAnchor(state)
     installLabBridge()
@@ -165,6 +167,16 @@ function registerSettings() {
     type:         "boolean",
     defaultValue: DEFAULTS.quickConnect,
     onChange(v)  { state.quickConnect = Boolean(v) },
+  })
+
+  // --- Runtime por nodo (Fase 3). Visible en Settings + toggle en el panel ---
+  add({
+    id:           "NKD Reroutes.NodeRuntime",
+    name:         "Show node runtime",
+    tooltip:      "After a run, each node shows a badge with how long it took to execute. Works on the classic canvas and Nodes 2.0.",
+    type:         "boolean",
+    defaultValue: DEFAULTS.nodeRuntime,
+    onChange(v)  { state.nodeRuntime = Boolean(v); if (!v) clearRuntimeBadges() },
   })
 
   // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
@@ -952,7 +964,7 @@ function buildPanel(el) {
     s.id = "nkd-panel-styles"
     s.textContent = `
 .nkd-panel {
-  --nkd-accent: #7db98a;
+  --nkd-accent: ${NKD_ACCENT};
   padding: 10px 8px 16px;
   overflow-y: auto;
   height: 100%;
@@ -1305,6 +1317,9 @@ function buildPanel(el) {
     "Drag a wire from a socket: a list of nearby compatible sockets pops up next to it — release " +
     "on one to connect. Free inputs first, occupied ones after. Replaces the drop-on-empty node " +
     "search while on. Experimental.", true))
+  secNodes.appendChild(makeToggle("nodeRuntime", "Show node runtime",
+    "After a run, each node shows a badge with how long it took to execute. Works on the classic " +
+    "canvas and Nodes 2.0.", true))
 
   const arrangeBtn = document.createElement("button")
   arrangeBtn.className = "nkd-panel-reset"

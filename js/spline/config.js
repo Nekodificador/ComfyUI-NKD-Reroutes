@@ -14,6 +14,7 @@ export const DEFAULTS = Object.freeze({
   ignoreShorterThan:        40,     // los nodos más bajos que esto no estorban a los cables
   collapseKeepsWire:        true,   // al plegar un nodo, mantener su primer socket a la misma altura
   quickConnect:             false,  // soltar un cable en vacío ofrece sockets compatibles cercanos
+  nodeRuntime:              false,  // badge con el tiempo de ejecución de cada nodo
   simpleRerouteOffset:      40,
   minSplineOffset:          10,
   handleFactor:             1.0,
@@ -40,13 +41,18 @@ export const DEFAULTS = Object.freeze({
   magnetMatchWidth:         true,
 })
 
+// Azul NKD: fuente única del acento de todo el paquete (panel, badges de runtime,
+// menú de quick-connect). Es el azul de acento del resto de nodos NKD. El panel lo
+// expone además como CSS var --nkd-accent. Cambiarlo aquí lo cambia en todas partes.
+export const NKD_ACCENT = "#4ab4ff"
+
 // Lo que un preset NO guarda: preferencias visuales y ajustes de otra capa.
 // De aquí sale PRESET_KEYS, que es lo que se copia al guardar los ajustes
 // actuales como preset propio.
 // pcbEnabled no es geometría de la curva: es ELEGIR RENDERIZADOR. Si entrase en
 // los presets, cargar un estilo de cable te sacaría del modo PCB sin pedirlo.
 const NO_ES_GEOMETRIA = new Set([
-  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect",
+  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime",
   "magnetEnabled", "magnetRadius", "magnetGapX", "magnetGapY",
   "magnetGuides", "magnetMatchWidth",
 ])
@@ -91,6 +97,7 @@ export const SETTING_ID_MAP = {
   "NKD Reroutes.IgnoreShorterThan":      "ignoreShorterThan",
   "NKD Reroutes.CollapseKeepsWire":      "collapseKeepsWire",
   "NKD Reroutes.QuickConnect":           "quickConnect",
+  "NKD Reroutes.NodeRuntime":            "nodeRuntime",
   "NKD Reroutes.SimpleRerouteOffset":    "simpleRerouteOffset",
   "NKD Reroutes.WireCurvature":          "handleFactor",
   "NKD Reroutes.NodePull":               "nodeFactor",

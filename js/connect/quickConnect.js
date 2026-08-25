@@ -25,6 +25,7 @@
 import { app } from "../../../scripts/app.js"
 import { computeQuickConnect } from "./computeQuickConnect.js"
 import { rectOf } from "../magnet/snapTargets.js"
+import { NKD_ACCENT } from "../spline/config.js"
 
 const LG = () => globalThis.LiteGraph
 
@@ -35,7 +36,8 @@ let suppressing = false        // ventana en la que suprimimos el buscador nativ
 const _overlayPatched = new WeakSet()
 const ROW_H = 22, PAD = 8, DOT = 4, ANCHOR_GAP = 32
 const MIN_W = 180, MAX_W = 380
-const ACCENT = "#e0c060"
+const ACCENT = NKD_ACCENT          // acento NKD, coherente con panel y badges
+const SELECTED = "#2a4a6b"         // fila resaltada: azul oscuro a juego
 
 const labelOf = (it) => `${it.node.title || it.node.type || "node"} · ${it.name || "#" + it.slot}`
 
@@ -210,7 +212,7 @@ function drawDrag(ctx, canvas) {
   drag.items.forEach((it, i) => {
     const y = ay + i * ROW_H
     drag.rects.push({ x: ax, y, w: W, h: ROW_H })
-    if (i === drag.hover) { ctx.fillStyle = "#3a6ea5"; ctx.fillRect(ax, y, W, ROW_H) }
+    if (i === drag.hover) { ctx.fillStyle = SELECTED; ctx.fillRect(ax, y, W, ROW_H) }
     // Ocupado = atenuado (punto y texto en gris); libre = dorado.
     ctx.fillStyle = it.occupied ? "#777" : ACCENT
     ctx.beginPath(); ctx.arc(ax + PAD + DOT, y + ROW_H / 2, DOT, 0, Math.PI * 2); ctx.fill()

@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js"
 import { installMagnet } from "./magnet/dragAdapter.js"
 import { installQuickConnect } from "./connect/quickConnect.js"
 import { installQuickTemplates } from "./templates/quickTemplates.js"
-import { installNodeRuntime, clearRuntimeBadges } from "./runtime/nodeRuntime.js"
+import { installNodeRuntime, refreshRuntimeDisplay } from "./runtime/nodeRuntime.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
@@ -176,7 +176,17 @@ function registerSettings() {
     tooltip:      "After a run, each node shows a badge with how long it took to execute. Works on the classic canvas and Nodes 2.0.",
     type:         "boolean",
     defaultValue: DEFAULTS.nodeRuntime,
-    onChange(v)  { state.nodeRuntime = Boolean(v); if (!v) clearRuntimeBadges() },
+    onChange(v)  { state.nodeRuntime = Boolean(v); refreshRuntimeDisplay() },
+  })
+
+  // --- Heatmap por runtime (Fase 3, 2ª capa). Visible en Settings + panel ---
+  add({
+    id:           "NKD Reroutes.Heatmap",
+    name:         "Runtime heatmap",
+    tooltip:      "Colours each node's runtime badge by relative cost: dark blue = fast, orange = slow (relative to the slowest node this run). Colourblind-safe. Run a workflow first.",
+    type:         "boolean",
+    defaultValue: DEFAULTS.heatmap,
+    onChange(v)  { state.heatmap = Boolean(v); refreshRuntimeDisplay() },
   })
 
   // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
@@ -1320,6 +1330,9 @@ function buildPanel(el) {
   secNodes.appendChild(makeToggle("nodeRuntime", "Show node runtime",
     "After a run, each node shows a badge with how long it took to execute. Works on the classic " +
     "canvas and Nodes 2.0.", true))
+  secNodes.appendChild(makeToggle("heatmap", "Runtime heatmap",
+    "Colours each node's runtime badge by relative cost: dark blue = fast, orange = slow. " +
+    "Colourblind-safe. Run a workflow first.", true))
 
   const arrangeBtn = document.createElement("button")
   arrangeBtn.className = "nkd-panel-reset"

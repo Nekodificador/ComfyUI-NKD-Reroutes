@@ -5,6 +5,7 @@ import { installQuickTemplates } from "./templates/quickTemplates.js"
 import { installNodeRuntime, refreshRuntimeDisplay } from "./runtime/nodeRuntime.js"
 import { installComboNest } from "./combos/comboNest.js"
 import { installComboPreviews } from "./combos/comboPreview.js"
+import { installSavePreview, wrapNodeMenu } from "./combos/savePreview.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
@@ -51,6 +52,10 @@ app.registerExtension({
   keybindings: [
     { combo: { key: "A", shift: true }, commandId: "nkd.reroutes.autoArrange" },
   ],
+  // Clic derecho en un nodo con imágenes → "Save as model preview".
+  beforeRegisterNodeDef(nodeType) {
+    wrapNodeMenu(nodeType)
+  },
   setup() {
     registerSettings()
     patchLiteGraph()
@@ -61,6 +66,7 @@ app.registerExtension({
     installNodeRuntime(state)
     installComboNest(state)
     installComboPreviews(state)
+    installSavePreview()
     installShrinkOnLegacy()
     installCollapseAnchor(state)
     installLabBridge()

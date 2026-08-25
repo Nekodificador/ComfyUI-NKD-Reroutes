@@ -4,6 +4,7 @@ import { installQuickConnect } from "./connect/quickConnect.js"
 import { installQuickTemplates } from "./templates/quickTemplates.js"
 import { installNodeRuntime, refreshRuntimeDisplay } from "./runtime/nodeRuntime.js"
 import { installComboNest } from "./combos/comboNest.js"
+import { installComboPreviews } from "./combos/comboPreview.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
@@ -59,6 +60,7 @@ app.registerExtension({
     installQuickTemplates()
     installNodeRuntime(state)
     installComboNest(state)
+    installComboPreviews(state)
     installShrinkOnLegacy()
     installCollapseAnchor(state)
     installLabBridge()
@@ -199,6 +201,16 @@ function registerSettings() {
     type:         "boolean",
     defaultValue: DEFAULTS.comboNest,
     onChange(v)  { state.comboNest = Boolean(v) },
+  })
+
+  // --- Previews de modelos al hover (Fase 5, clásico). Settings + panel ---
+  add({
+    id:           "NKD Reroutes.ComboPreviews",
+    name:         "Show model previews",
+    tooltip:      "Classic canvas only: hovering a checkpoint/LoRA/model in a dropdown shows its preview thumbnail (from the model's sidecar image or embedded cover). Nodes 2.0 shows previews in its Model Library sidebar.",
+    type:         "boolean",
+    defaultValue: DEFAULTS.comboPreviews,
+    onChange(v)  { state.comboPreviews = Boolean(v) },
   })
 
   // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
@@ -1349,6 +1361,9 @@ function buildPanel(el) {
     "Classic canvas only: long dropdowns with '/' in their names are grouped into collapsible " +
     "folders, and the filter searches recursively across every subfolder. Nodes 2.0 does this " +
     "natively.", true))
+  secNodes.appendChild(makeToggle("comboPreviews", "Show model previews",
+    "Classic canvas only: hovering a model in a dropdown shows its preview thumbnail (from the " +
+    "model's sidecar image or embedded cover). Nodes 2.0 shows them in its Model Library.", true))
 
   const arrangeBtn = document.createElement("button")
   arrangeBtn.className = "nkd-panel-reset"

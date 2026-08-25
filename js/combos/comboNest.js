@@ -16,6 +16,7 @@
 // ponytail: sin previews/thumbnails ni modo grid (eso es de pysssss y lleva
 // backend). Aquí sólo carpetas + filtro recursivo.
 
+import { app } from "../../../scripts/app.js"
 import { buildComboTree } from "./buildComboTree.js"
 
 let cfg = null
@@ -100,6 +101,32 @@ function buildTreeDom(menu, entries) {
   render(tree, parent, 0)
 }
 
+// Al agrupar en carpetas el menú se encoge mucho, pero el core lo posicionó para
+// la lista larga (acababa pegado al techo). Se recoloca junto al ratón y se acota
+// la altura a la pantalla. Calcado de pysssss (last_mouse es coord de cliente).
+function reposition(menu) {
+  const mouse = app.canvas?.last_mouse
+  const rect = menu.getBoundingClientRect()
+  // Sin ratón fiable ([0,0] = inactivo): no mover al rincón, sólo acotar la altura.
+  if (!mouse || (mouse[0] === 0 && mouse[1] === 0)) {
+    const t = Math.max(4, rect.top)
+    menu.style.maxHeight = `${Math.round(window.innerHeight - t - 12)}px`
+    menu.style.overflowY = "auto"
+    return
+  }
+  const body = document.body.getBoundingClientRect()
+  let left = mouse[0] - 10
+  let top = mouse[1] - 10
+  if (body.width && left > body.width - rect.width - 10) left = body.width - rect.width - 10
+  if (body.height && top > body.height - rect.height - 10) top = body.height - rect.height - 10
+  left = Math.max(0, left)
+  top = Math.max(0, top)
+  menu.style.left = `${Math.round(left)}px`
+  menu.style.top = `${Math.round(top)}px`
+  menu.style.maxHeight = `${Math.round(window.innerHeight - top - 12)}px`
+  menu.style.overflowY = "auto"
+}
+
 function processMenu(menu) {
   if (!cfg?.comboNest || menu[DONE]) return
   // Sólo menús de COMBO: el core sólo les inyecta el filtro (cuando hay >4 opciones).
@@ -112,7 +139,7 @@ function processMenu(menu) {
   if (!entries.some((e) => SPLIT.test(valueOf(e)))) return   // sin rutas, nada que anidar
 
   menu[DONE] = true
-  try { buildTreeDom(menu, entries) } catch (e) { console.warn("[NKD Reroutes] combo nest", e) }
+  try { buildTreeDom(menu, entries); reposition(menu) } catch (e) { console.warn("[NKD Reroutes] combo nest", e) }
 }
 
 export function installComboNest(state) {

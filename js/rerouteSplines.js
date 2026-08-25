@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js"
 import { installMagnet } from "./magnet/dragAdapter.js"
+import { installQuickConnect } from "./connect/quickConnect.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
@@ -49,6 +50,7 @@ app.registerExtension({
     patchLiteGraph()
     registerSidebarPanel()
     installMagnet(state)
+    installQuickConnect(state)
     installShrinkOnLegacy()
     installCollapseAnchor(state)
     installLabBridge()
@@ -149,6 +151,16 @@ function registerSettings() {
     type:         "hidden",
     defaultValue: true,
     onChange(v)  { state.spreadCorridors = Boolean(v); redraw() },
+  })
+
+  // --- Conectar desde lejos (Fase 1). Visible en Settings + toggle en el panel ---
+  add({
+    id:           "NKD Reroutes.QuickConnect",
+    name:         "Quick-connect on drop",
+    tooltip:      "Drag a wire from a socket: a list of nearby compatible sockets pops up next to it — release on one to connect. Works on the classic canvas and Nodes 2.0. Experimental.",
+    type:         "boolean",
+    defaultValue: DEFAULTS.quickConnect,
+    onChange(v)  { state.quickConnect = Boolean(v) },
   })
 
   // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
@@ -1285,6 +1297,10 @@ function buildPanel(el) {
     "title bar. This shifts the node so its first socket stays exactly where it was — and puts it " +
     "back when you expand it again. Classic canvas only: with Nodes 2.0 the sockets are placed " +
     "by a different layout and this does not reach them.", true))
+  secNodes.appendChild(makeToggle("quickConnect", "Quick-connect on drop",
+    "Drag a wire from a socket: a list of nearby compatible sockets pops up next to it — release " +
+    "on one to connect. Free inputs first, occupied ones after. Replaces the drop-on-empty node " +
+    "search while on. Experimental.", true))
 
   const arrangeBtn = document.createElement("button")
   arrangeBtn.className = "nkd-panel-reset"

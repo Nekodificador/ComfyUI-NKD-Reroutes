@@ -18,6 +18,7 @@ export const DEFAULTS = Object.freeze({
   heatmap:                  false,  // colorear cable/reroute por el runtime del nodo aguas abajo
   comboNest:                false,  // agrupar dropdowns en subcarpetas + filtro recursivo (clásico)
   comboPreviews:            false,  // miniatura del modelo al pasar el ratón por el combo (clásico)
+  comboFuzzy:               false,  // filtro fuzzy (por subsecuencia) en los desplegables (clásico)
   simpleRerouteOffset:      40,
   minSplineOffset:          10,
   handleFactor:             1.0,
@@ -55,7 +56,7 @@ export const NKD_ACCENT = "#4ab4ff"
 // pcbEnabled no es geometría de la curva: es ELEGIR RENDERIZADOR. Si entrase en
 // los presets, cargar un estilo de cable te sacaría del modo PCB sin pedirlo.
 const NO_ES_GEOMETRIA = new Set([
-  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime", "heatmap", "comboNest", "comboPreviews",
+  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime", "heatmap", "comboNest", "comboPreviews", "comboFuzzy",
   "magnetEnabled", "magnetRadius", "magnetGapX", "magnetGapY",
   "magnetGuides", "magnetMatchWidth",
 ])
@@ -104,6 +105,7 @@ export const SETTING_ID_MAP = {
   "NKD Reroutes.Heatmap":                "heatmap",
   "NKD Reroutes.ComboNest":              "comboNest",
   "NKD Reroutes.ComboPreviews":          "comboPreviews",
+  "NKD Reroutes.ComboFuzzy":             "comboFuzzy",
   "NKD Reroutes.SimpleRerouteOffset":    "simpleRerouteOffset",
   "NKD Reroutes.WireCurvature":          "handleFactor",
   "NKD Reroutes.NodePull":               "nodeFactor",

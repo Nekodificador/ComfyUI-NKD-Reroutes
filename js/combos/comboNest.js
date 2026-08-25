@@ -18,6 +18,7 @@
 
 import { app } from "../../../scripts/app.js"
 import { buildComboTree } from "./buildComboTree.js"
+import { fuzzyMatch } from "./fuzzyMatch.js"
 
 let cfg = null
 let _installed = false
@@ -127,19 +128,39 @@ function reposition(menu) {
   menu.style.overflowY = "auto"
 }
 
-function processMenu(menu) {
+// Búsqueda fuzzy: sustituye el substring del filtro del core por match por
+// subsecuencia. Se engancha un listener 'input' propio en el filtro; corre DESPUÉS
+// del del core (registrado antes) y su display manda. Sólo cuenta las hojas
+// (`.litemenu-entry` que no sean cabeceras de carpeta).
+function attachFuzzy(menu) {
+  const input = menu.querySelector(".comfy-context-menu-filter")
+  if (!input || input.__nkdFuzzy) return
+  input.__nkdFuzzy = true
+  input.addEventListener("input", () => {
+    const term = input.value
+    for (const entry of menu.querySelectorAll(".litemenu-entry")) {
+      if (entry.classList.contains("nkd-combo-folder")) continue
+      entry.style.display = fuzzyMatch(term, entry.textContent || "") ? "block" : "none"
+    }
+  })
+}
+
+function nestIfNeeded(menu) {
   if (!cfg?.comboNest || menu[DONE]) return
-  // Sólo menús de COMBO: el core sólo les inyecta el filtro (cuando hay >4 opciones).
-  if (!menu.querySelector(".comfy-context-menu-filter")) return
   // No duplicar si otra extensión (pysssss/nosotros) ya anidó este menú.
   if (menu.querySelector(".pysssss-combo-folder, .nkd-combo-folder")) return
-
   const entries = [...menu.querySelectorAll(".litemenu-entry")]
   if (entries.length < THRESHOLD) return
   if (!entries.some((e) => SPLIT.test(valueOf(e)))) return   // sin rutas, nada que anidar
-
   menu[DONE] = true
   try { buildTreeDom(menu, entries); reposition(menu) } catch (e) { console.warn("[NKD Reroutes] combo nest", e) }
+}
+
+function processMenu(menu) {
+  // Sólo menús de COMBO: el core sólo les inyecta el filtro (cuando hay >4 opciones).
+  if (!menu.querySelector(".comfy-context-menu-filter")) return
+  if (cfg?.comboFuzzy) attachFuzzy(menu)   // fuzzy vale también en combos sin carpetas
+  nestIfNeeded(menu)
 }
 
 export function installComboNest(state) {
@@ -148,7 +169,7 @@ export function installComboNest(state) {
   _installed = true
   injectCss()
   const obs = new MutationObserver((muts) => {
-    if (!cfg?.comboNest) return
+    if (!cfg?.comboNest && !cfg?.comboFuzzy) return
     for (const m of muts) {
       for (const n of m.addedNodes) {
         if (n.nodeType === 1 && n.classList?.contains("litecontextmenu")) {

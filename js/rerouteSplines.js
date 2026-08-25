@@ -172,8 +172,8 @@ function registerSettings() {
   // --- Conectar desde lejos (Fase 1). Visible en Settings + toggle en el panel ---
   add({
     id:           "NKD Reroutes.QuickConnect",
-    name:         "Quick-connect on drop",
-    tooltip:      "Drag a wire from a socket: a list of nearby compatible sockets pops up next to it — release on one to connect. Works on the classic canvas and Nodes 2.0. Experimental.",
+    name:         "Quick-connect (Ctrl+drag)",
+    tooltip:      "Hold Ctrl while dragging a wire from a socket: a list of nearby compatible sockets pops up next to it — release on one to connect. Works on the classic canvas and Nodes 2.0.",
     type:         "boolean",
     defaultValue: DEFAULTS.quickConnect,
     onChange(v)  { state.quickConnect = Boolean(v) },
@@ -217,6 +217,16 @@ function registerSettings() {
     type:         "boolean",
     defaultValue: DEFAULTS.comboPreviews,
     onChange(v)  { state.comboPreviews = Boolean(v) },
+  })
+
+  // --- Filtro fuzzy en los desplegables (clásico). Settings + panel ---
+  add({
+    id:           "NKD Reroutes.ComboFuzzy",
+    name:         "Fuzzy search in dropdowns",
+    tooltip:      "Classic canvas only: the dropdown filter matches several words in any order — every word must appear ('neko krea' needs both 'neko' and 'krea'), unlike the core's single literal match. Nodes 2.0 keeps its native filter.",
+    type:         "boolean",
+    defaultValue: DEFAULTS.comboFuzzy,
+    onChange(v)  { state.comboFuzzy = Boolean(v) },
   })
 
   // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
@@ -943,9 +953,20 @@ const _syncHooks = []         // post-sync callbacks (e.g. update disabled state
 let   _settingsListenerAC = null  // AbortController for the settings change listener
 
 function registerSidebarPanel() {
+  // Icono propio: un cable Bézier con su punto de reroute, para que se reconozca de
+  // un vistazo (el `pi pi-sliders-h` genérico no decía nada). Vía `mask` sobre un
+  // SVG → toma el color de icono del tema, como los pi-*. Se inyecta en setup
+  // porque el icono se pinta en la barra ANTES de abrir el panel.
+  if (!document.getElementById("nkd-tabicon-styles")) {
+    const svg = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'><path d='M2 19C7 19 8.5 12 12 12'/><path d='M12 12C15.5 12 17 5 22 5'/><circle cx='12' cy='12' r='2.6' fill='%23000' stroke='none'/></svg>"
+    const s = document.createElement("style")
+    s.id = "nkd-tabicon-styles"
+    s.textContent = `.nkd-wires-tabicon{-webkit-mask:url("${svg}") center/contain no-repeat;mask:url("${svg}") center/contain no-repeat;background-color:currentColor;width:1.25rem;height:1.25rem;display:inline-block;}`
+    document.head.appendChild(s)
+  }
   app.extensionManager?.registerSidebarTab?.({
     id:      "nkd-reroutes",
-    icon:    "pi pi-sliders-h",
+    icon:    "nkd-wires-tabicon",
     title:   "NKD Wires",
     tooltip: "NKD Reroutes — wire controls",
     type:    "custom",
@@ -1055,6 +1076,15 @@ function buildPanel(el) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Filas de TOGGLE: el label llena el ancho y el switch se va al extremo derecho,
+   así no se corta el texto ni queda hueco muerto. No toca los sliders (que usan
+   el label de ancho fijo para alinearse). */
+.nkd-panel-row:has(.nkd-panel-toggle-label) { justify-content: space-between; }
+.nkd-panel-row:has(.nkd-panel-toggle-label) .nkd-panel-label {
+  flex: 1 1 auto;
+  white-space: normal;
+  overflow: visible;
 }
 .nkd-panel-slider { flex: 1; min-width: 0; accent-color: var(--nkd-accent); cursor: pointer; }
 .nkd-panel-value {
@@ -1353,10 +1383,9 @@ function buildPanel(el) {
     "title bar. This shifts the node so its first socket stays exactly where it was — and puts it " +
     "back when you expand it again. Classic canvas only: with Nodes 2.0 the sockets are placed " +
     "by a different layout and this does not reach them.", true))
-  secNodes.appendChild(makeToggle("quickConnect", "Quick-connect on drop",
-    "Drag a wire from a socket: a list of nearby compatible sockets pops up next to it — release " +
-    "on one to connect. Free inputs first, occupied ones after. Replaces the drop-on-empty node " +
-    "search while on. Experimental.", true))
+  secNodes.appendChild(makeToggle("quickConnect", "Quick-connect (Ctrl+drag)",
+    "Hold Ctrl while dragging a wire from a socket to get a list of nearby compatible sockets — " +
+    "release on one to connect. Free inputs first, occupied ones after.", true))
   secNodes.appendChild(makeToggle("nodeRuntime", "Show node runtime",
     "After a run, each node shows a badge with how long it took to execute. Works on the classic " +
     "canvas and Nodes 2.0.", true))
@@ -1370,6 +1399,9 @@ function buildPanel(el) {
   secNodes.appendChild(makeToggle("comboPreviews", "Show model previews",
     "Classic canvas only: hovering a model in a dropdown shows its preview thumbnail (from the " +
     "model's sidecar image or embedded cover). Nodes 2.0 shows them in its Model Library.", true))
+  secNodes.appendChild(makeToggle("comboFuzzy", "Fuzzy search in dropdowns",
+    "Classic canvas only: type several words in any order — every word must appear ('neko krea' " +
+    "needs both). Nodes 2.0 keeps its native filter.", true))
 
   const arrangeBtn = document.createElement("button")
   arrangeBtn.className = "nkd-panel-reset"

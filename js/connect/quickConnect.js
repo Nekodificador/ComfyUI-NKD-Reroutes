@@ -15,6 +15,9 @@
 // release_link_on_empty_shows_menu + canvas.showConnectionMenu. Soltar SIN elegir
 // no suprime nada, así el "soltar para crear nodo" nativo sigue.
 //
+// Disparo: mientras arrastras un cable, la lista sólo aparece si mantienes CTRL
+// pulsado (soltar Ctrl la retira). Así el arrastre normal no se toca.
+//
 // Interacción: lista de sockets compatibles anclada al socket de ORIGEN, la fila
 // bajo el cursor resaltada, línea de puntos + contorno del nodo destino, soltar
 // encima conecta. Libres antes que ocupados (motor). Coords desde el evento
@@ -243,7 +246,9 @@ function ensureOverlayHook(canvas) {
 function onPointerMove(e) {
   const canvas = app.canvas
   if (!canvas) return
-  if (!cfg?.quickConnect) { if (drag) { drag = null; redraw(canvas) } return }
+  // El menú sólo aparece con CTRL pulsado durante el arrastre: así el arrastre
+  // normal no se toca y la lista sale sólo cuando la pides. Soltar Ctrl la retira.
+  if (!cfg?.quickConnect || !e.ctrlKey) { if (drag) { drag = null; redraw(canvas) } return }
 
   const origin = readConnecting(canvas)
   if (origin && !drag) { drag = buildDrag(canvas, origin); if (drag) ensureOverlayHook(canvas) }

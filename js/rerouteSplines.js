@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js"
 import { installMagnet } from "./magnet/dragAdapter.js"
 import { installQuickConnect } from "./connect/quickConnect.js"
+import { installQuickTemplates } from "./templates/quickTemplates.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
@@ -42,6 +43,8 @@ app.registerExtension({
     },
   ],
   // Shift+A está libre en ComfyUI (sólo existen 'a' y ctrl+a).
+  // Alt+1..9 (plantillas) va por listener de teclado en installQuickTemplates,
+  // no aquí: el keybinding declarativo alt+dígito no dispara en el frontend actual.
   keybindings: [
     { combo: { key: "A", shift: true }, commandId: "nkd.reroutes.autoArrange" },
   ],
@@ -51,6 +54,7 @@ app.registerExtension({
     registerSidebarPanel()
     installMagnet(state)
     installQuickConnect(state)
+    installQuickTemplates()
     installShrinkOnLegacy()
     installCollapseAnchor(state)
     installLabBridge()

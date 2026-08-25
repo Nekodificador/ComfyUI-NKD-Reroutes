@@ -3,6 +3,7 @@ import { installMagnet } from "./magnet/dragAdapter.js"
 import { installQuickConnect } from "./connect/quickConnect.js"
 import { installQuickTemplates } from "./templates/quickTemplates.js"
 import { installNodeRuntime, refreshRuntimeDisplay } from "./runtime/nodeRuntime.js"
+import { installComboNest } from "./combos/comboNest.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
@@ -57,6 +58,7 @@ app.registerExtension({
     installQuickConnect(state)
     installQuickTemplates()
     installNodeRuntime(state)
+    installComboNest(state)
     installShrinkOnLegacy()
     installCollapseAnchor(state)
     installLabBridge()
@@ -187,6 +189,16 @@ function registerSettings() {
     type:         "boolean",
     defaultValue: DEFAULTS.heatmap,
     onChange(v)  { state.heatmap = Boolean(v); refreshRuntimeDisplay() },
+  })
+
+  // --- Combos en subcarpetas + filtro recursivo (Fase 4, clásico). Settings + panel ---
+  add({
+    id:           "NKD Reroutes.ComboNest",
+    name:         "Group dropdowns into folders",
+    tooltip:      "Classic canvas only: long dropdowns with '/' in their names (checkpoints, LoRAs) are grouped into collapsible folders, and typing in the filter searches recursively across every subfolder. Nodes 2.0 already does this natively.",
+    type:         "boolean",
+    defaultValue: DEFAULTS.comboNest,
+    onChange(v)  { state.comboNest = Boolean(v) },
   })
 
   // --- Magnetismo: los tres interruptores van ocultos, se manejan desde el panel ---
@@ -1333,6 +1345,10 @@ function buildPanel(el) {
   secNodes.appendChild(makeToggle("heatmap", "Runtime heatmap",
     "Colours each node's runtime badge by relative cost: dark blue = fast, orange = slow. " +
     "Colourblind-safe. Run a workflow first.", true))
+  secNodes.appendChild(makeToggle("comboNest", "Group dropdowns into folders",
+    "Classic canvas only: long dropdowns with '/' in their names are grouped into collapsible " +
+    "folders, and the filter searches recursively across every subfolder. Nodes 2.0 does this " +
+    "natively.", true))
 
   const arrangeBtn = document.createElement("button")
   arrangeBtn.className = "nkd-panel-reset"

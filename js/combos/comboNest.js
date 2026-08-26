@@ -42,6 +42,9 @@ function injectCss() {
 .litecontextmenu:has(input:not(:placeholder-shown)) .nkd-combo-folder { display: none !important; }
 .litecontextmenu:has(input:not(:placeholder-shown)) .nkd-combo-prefix { display: inline; }
 .litecontextmenu:has(input:not(:placeholder-shown)) .litemenu-entry { padding-left: 2px !important; }
+
+/* Entrada resaltada por navegación con teclado. */
+.nkd-combo-kbd { background-color: #2a4a6b !important; color: #fff !important; }
 `
   document.head.appendChild(s)
 }
@@ -156,10 +159,48 @@ function nestIfNeeded(menu) {
   try { buildTreeDom(menu, entries); reposition(menu) } catch (e) { console.warn("[NKD Reroutes] combo nest", e) }
 }
 
+// Navegación con teclado que respeta el set VISIBLE (fuzzy + carpetas), en vez de
+// la del core, que recorre TODAS las entradas por índice en su orden original y se
+// desincroniza con nuestra reorganización. Flechas ↑/↓ mueven el resaltado por las
+// hojas visibles; Enter dispara el clic de la resaltada (o la primera).
+//
+// El listener va en CAPTURA sobre el MENÚ (ancestro del input): así corre ANTES que
+// el keydown del core (que está en el propio input) y lo reemplaza con stopImmediate.
+function attachKeyNav(menu) {
+  if (menu.__nkdKeyNav) return
+  const input = menu.querySelector(".comfy-context-menu-filter")
+  if (!input) return
+  menu.__nkdKeyNav = true
+  const HI = "nkd-combo-kbd"
+  let idx = -1
+  const visibleLeaves = () => [...menu.querySelectorAll(".litemenu-entry")]
+    .filter((e) => !e.classList.contains("nkd-combo-folder") && e.offsetParent !== null)
+  const paint = (list) => {
+    list.forEach((e, i) => e.classList.toggle(HI, i === idx))
+    if (idx >= 0) list[idx]?.scrollIntoView({ block: "nearest" })
+  }
+  menu.addEventListener("keydown", (ev) => {
+    if (ev.target !== input) return
+    if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp" && ev.key !== "Enter") return
+    ev.preventDefault(); ev.stopImmediatePropagation()
+    const list = visibleLeaves()
+    if (ev.key === "Enter") { (list[idx] || list[0])?.click(); return }
+    if (!list.length) { idx = -1; return }
+    idx = ev.key === "ArrowDown" ? (idx + 1) % list.length : (idx <= 0 ? list.length - 1 : idx - 1)
+    paint(list)
+  }, true)
+  // Al filtrar cambia el set visible → reiniciar el resaltado.
+  input.addEventListener("input", () => {
+    idx = -1
+    for (const e of menu.querySelectorAll("." + HI)) e.classList.remove(HI)
+  })
+}
+
 function processMenu(menu) {
   // Sólo menús de COMBO: el core sólo les inyecta el filtro (cuando hay >4 opciones).
   if (!menu.querySelector(".comfy-context-menu-filter")) return
   if (cfg?.comboFuzzy) attachFuzzy(menu)   // fuzzy vale también en combos sin carpetas
+  attachKeyNav(menu)                       // navegación con teclado sobre el set visible
   nestIfNeeded(menu)
 }
 

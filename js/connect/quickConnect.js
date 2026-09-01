@@ -94,6 +94,8 @@ function collectCandidates(graph, origin) {
     if (node === origin.node) continue          // no ofrecerse a sí mismo
     const sockets = isInput ? node.inputs : node.outputs
     if (!sockets) continue
+    // El orden lo decide la cercanía del NODO, no la del socket (ver motor).
+    const nodeRect = node.getBounding?.() ?? [node.pos[0], node.pos[1], node.size[0], node.size[1]]
     for (let slot = 0; slot < sockets.length; slot++) {
       const s = sockets[slot]
       if (!s) continue
@@ -102,7 +104,7 @@ function collectCandidates(graph, origin) {
       // salida abanica) — es sólo preferencia de orden: libre antes que usado,
       // tanto buscando entradas como buscando salidas hacia atrás.
       const occupied = isInput ? s.link != null : (s.links?.length ?? 0) > 0
-      out.push({ node, nodeId: node.id, slot, side: want, type: s.type, name: s.name || s.label || "", pos, occupied })
+      out.push({ node, nodeId: node.id, slot, side: want, type: s.type, name: s.name || s.label || "", pos, nodeRect: [...nodeRect], occupied })
     }
   }
   return out

@@ -27,14 +27,17 @@ export function isTypeCompatible(a, b) {
 
 /**
  * Candidatos compatibles del lado buscado, ordenados: los sockets LIBRES antes
- * que los OCUPADos (`c.occupied` — una entrada con cable puesto), y dentro de
- * cada grupo por cercanía real al socket de origen (distancia euclídea, no
- * sólo vertical: un candidato pegado en diagonal debe ganarle a uno lejos
- * pero perfectamente alineado en Y).
+ * que los OCUPADOS (`c.occupied` — una entrada con cable puesto); dentro de cada
+ * grupo por cercanía del NODO al socket de origen (distancia al rectángulo
+ * `c.nodeRect`, 0 si el origen cae dentro; sin rect, la del propio socket); y
+ * dentro del mismo nodo, por orden de aparición del socket (`slot`). Así el nodo
+ * más cercano ofrece primero su primer input compatible, aunque otro input suyo
+ * quede físicamente más cerca del cable.
  *
  * @param {{type:string, side:"input"|"output", pos?:[number,number]}} origin  socket del que se arrastra
  * @param {Array<{nodeId:*, slot:number, side:"input"|"output", type:string,
- *                pos:[number,number], occupied?:boolean}>} candidates
+ *                pos:[number,number], nodeRect?:[number,number,number,number],
+ *                occupied?:boolean}>} candidates
  * @param {{max?:number, match?:(from:string,to:string)=>boolean}} [opts]
  * @returns {Array<candidate>}  hasta `max`
  */
@@ -53,12 +56,21 @@ export function computeQuickConnect(origin, candidates, opts = {}) {
     return match(from, to)
   })
 
-  const dist2 = (c) => (c.pos[0] - ox) ** 2 + (c.pos[1] - oy) ** 2
+  // Distancia² del origen al nodo del candidato: al rectángulo si lo hay, si no
+  // al socket. Dentro del rectángulo es 0.
+  const dist2 = (c) => {
+    const r = c.nodeRect
+    if (!r) return (c.pos[0] - ox) ** 2 + (c.pos[1] - oy) ** 2
+    const dx = Math.max(r[0] - ox, 0, ox - (r[0] + r[2]))
+    const dy = Math.max(r[1] - oy, 0, oy - (r[1] + r[3]))
+    return dx * dx + dy * dy
+  }
 
-  // Libres antes que ocupados; luego por cercanía; empate estable por nodo+slot.
+  // Libres antes que ocupados; luego por cercanía del nodo; dentro del nodo por
+  // orden de aparición; empate estable por id.
   out.sort((p, q) =>
     (p.occupied ? 1 : 0) - (q.occupied ? 1 : 0)
     || dist2(p) - dist2(q)
-    || String(p.nodeId).localeCompare(String(q.nodeId)) || p.slot - q.slot)
+    || (p.nodeId === q.nodeId ? p.slot - q.slot : String(p.nodeId).localeCompare(String(q.nodeId))))
   return out.slice(0, max)
 }

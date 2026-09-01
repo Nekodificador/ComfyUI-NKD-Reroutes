@@ -80,3 +80,24 @@ test("max recorta el número de sugerencias", () => {
     cand({ nodeId: `n${i}`, side: "input", pos: [0, i] }))
   assert.equal(computeQuickConnect(origin, candidates, { max: 5 }).length, 5)
 })
+
+test("dentro del mismo nodo manda el orden de los sockets, no cuál está más cerca", () => {
+  const origin = { type: "VIDEO", side: "output", pos: [0, 240] }
+  const rect = [100, 0, 300, 400]
+  const candidates = [
+    cand({ nodeId: "viewer", slot: 2, name: "reference", side: "input", type: "VIDEO", pos: [100, 240], nodeRect: rect }),
+    cand({ nodeId: "viewer", slot: 0, name: "media",     side: "input", type: "VIDEO", pos: [100, 20],  nodeRect: rect }),
+  ]
+  assert.deepEqual(computeQuickConnect(origin, candidates, {}).map(r => r.slot), [0, 2])
+})
+
+test("entre nodos manda la cercanía del nodo entero, y los ocupados van después", () => {
+  const origin = { type: "IMAGE", side: "output", pos: [0, 0] }
+  const candidates = [
+    cand({ nodeId: "far",  slot: 0, pos: [500, 0],  nodeRect: [500, -50, 200, 100] }),
+    cand({ nodeId: "near", slot: 1, pos: [100, 90], nodeRect: [100, -50, 200, 100] }),   // socket lejos, nodo cerca
+    cand({ nodeId: "near", slot: 0, pos: [100, 0],  nodeRect: [100, -50, 200, 100], occupied: true }),
+  ]
+  const res = computeQuickConnect(origin, candidates, {})
+  assert.deepEqual(res.map(r => `${r.nodeId}:${r.slot}`), ["near:1", "far:0", "near:0"])
+})

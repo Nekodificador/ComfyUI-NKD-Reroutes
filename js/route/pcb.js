@@ -224,7 +224,7 @@ export function laneStub(graph, node, isInput, slot) {
     // del rabito, no en el nodo.
     const linkId = isInput ? slots[j].link : slots[j].links?.[0]
     if (linkId == null) continue
-    const ll = graph._links?.get?.(Number(linkId))
+    const ll = graph.links?.get(Number(linkId))
     if (!ll) continue
     // Alturas vistas al dibujar si las hay; si no, lo que diga el nodo.
     const visto = pins.get(ll.id)
@@ -493,7 +493,7 @@ const LANE = 8
 // depende de quién se dibuje primero.
 function bundle(graph, link) {
   const out = []
-  for (const ll of graph._links?.values?.() ?? []) {
+  for (const ll of graph.links?.values() ?? []) {
     if (ll.origin_id === link.origin_id && ll.target_id === link.target_id) out.push(ll)
   }
   out.sort((a, b) => a.origin_slot - b.origin_slot || a.target_slot - b.target_slot || a.id - b.id)

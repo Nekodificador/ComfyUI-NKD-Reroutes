@@ -798,7 +798,7 @@ function applyPathRendererPatches(proto) {
         startIsReroute: linkData.startDirection === "none",
         endIsReroute:   linkData.endDirection   === "none",
         graph,
-        link:           graph?._links?.get?.(Number(linkData.id)) ?? null,
+        link:           graph?.links?.get(Number(linkData.id)) ?? null,
       })
     }
     return origDraw.call(this, ctx, linkData, context)

@@ -109,7 +109,7 @@ function grafoConSalidas(alturas) {
     links.set(10 + j, { origin_id: 1, origin_slot: j, target_id: 100 + j, target_slot: 0 })
   })
   return {
-    _nodes: nodos, _links: links,
+    _nodes: nodos, links: links,
     getNodeById: (id) => nodos.find(n => n.id === id),
   }
 }
@@ -212,7 +212,7 @@ function grafoParDoble() {
     [11, { id: 11, origin_id: 1, origin_slot: 1, target_id: 2, target_slot: 1 }],
   ])
   const nodos = [origen, destino, estorbo]
-  return { _nodes: nodos, _links: links, getNodeById: (id) => nodos.find(n => n.id === id) }
+  return { _nodes: nodos, links: links, getNodeById: (id) => nodos.find(n => n.id === id) }
 }
 
 // La forma de un trazado: la secuencia de giros, sin las coordenadas. Dos
@@ -223,8 +223,8 @@ const forma = (pts) => pts.slice(1).map((p, i) =>
 test("los cables entre el mismo par de nodos comparten forma", () => {
   const g = grafoParDoble()
   beginFrame(g)
-  const uno = routeFor(10, [200, 100], [900, 400], { graph: g, link: g._links.get(10) })
-  const dos = routeFor(11, [200, 130], [900, 430], { graph: g, link: g._links.get(11) })
+  const uno = routeFor(10, [200, 100], [900, 400], { graph: g, link: g.links.get(10) })
+  const dos = routeFor(11, [200, 130], [900, 430], { graph: g, link: g.links.get(11) })
   assert.equal(forma(uno), forma(dos),
     `cada hermano cogió un camino distinto:\n  ${JSON.stringify(uno)}\n  ${JSON.stringify(dos)}`)
 })
@@ -232,8 +232,8 @@ test("los cables entre el mismo par de nodos comparten forma", () => {
 test("las hebras van separadas y no se cruzan", () => {
   const g = grafoParDoble()
   beginFrame(g)
-  const uno = routeFor(10, [200, 100], [900, 400], { graph: g, link: g._links.get(10) })
-  const dos = routeFor(11, [200, 130], [900, 430], { graph: g, link: g._links.get(11) })
+  const uno = routeFor(10, [200, 100], [900, 400], { graph: g, link: g.links.get(10) })
+  const dos = routeFor(11, [200, 130], [900, 430], { graph: g, link: g.links.get(11) })
   assert.notDeepEqual(uno, dos, "misma forma no es el mismo sitio: van en paralelo")
   // Los tramos intermedios —los que no tocan un socket— tienen que estar
   // separados. Si coincidieran, las dos hebras irían una encima de la otra.
@@ -255,8 +255,8 @@ test("las hebras van separadas y no se cruzan", () => {
 test("la cinta respeta el orden de los sockets: nadie se cruza", () => {
   const g = grafoParDoble()
   beginFrame(g)
-  const arriba = routeFor(10, [200, 100], [900, 400], { graph: g, link: g._links.get(10) })
-  const abajo  = routeFor(11, [200, 130], [900, 430], { graph: g, link: g._links.get(11) })
+  const arriba = routeFor(10, [200, 100], [900, 400], { graph: g, link: g.links.get(10) })
+  const abajo  = routeFor(11, [200, 130], [900, 430], { graph: g, link: g.links.get(11) })
 
   // Cruce de dos polilíneas ortogonales: un tramo horizontal de una que pasa
   // por encima de un tramo vertical de la otra dentro de los dos rangos.
@@ -292,7 +292,7 @@ test("las alturas vistas al dibujar mandan sobre las que dice el nodo", () => {
 
   const reales = { 10: [[200, 100], [900, 400]], 11: [[200, 130], [900, 430]] }
   const pinta = (id) => routeFor(id, reales[id][0], reales[id][1],
-    { graph: g, link: g._links.get(Number(id)) })
+    { graph: g, link: g.links.get(Number(id)) })
 
   pinta(10); pinta(11)          // primer frame: aún no hay nada apuntado
   beginFrame({ ...g, _nodes: [...g._nodes, { pos: [0, 0], size: [1, 1] }] }) // algo se mueve
@@ -501,7 +501,7 @@ test("una pastilla se deja entrar por el lado por el que viene el cable", () => 
   }
   const links = new Map([[7, { id: 7, origin_id: 1, origin_slot: 0, target_id: 2, target_slot: 0 }]])
   const g = {
-    _nodes: [grande, pastilla], _links: links,
+    _nodes: [grande, pastilla], links: links,
     getNodeById: (id) => (id === 1 ? grande : pastilla),
   }
   const opts = { graph: g, link: links.get(7) }
@@ -539,7 +539,7 @@ test("la pastilla se entra por el mismo lado a cualquier altura", () => {
     }
     const links = new Map([[7, { id: 7, origin_id: 1, origin_slot: 0, target_id: 2, target_slot: 0 }]])
     const g = {
-      _nodes: [grande, pastilla], _links: links,
+      _nodes: [grande, pastilla], links: links,
       getNodeById: (id) => (id === 1 ? grande : pastilla),
     }
     beginFrame(g, { ignoreShorterThan: 40, avoidance: 8 })

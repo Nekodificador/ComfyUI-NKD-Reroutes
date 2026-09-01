@@ -65,6 +65,15 @@ test("libres antes que ocupados, y dentro de cada grupo por Y", () => {
   assert.deepEqual(res.map(r => r.nodeId), ["freeHigh", "freeLow", "busyHigh", "busyLow"])
 })
 
+test("ordena por cercanía real, no sólo por Y (diagonal cercano gana a lejano alineado)", () => {
+  const origin = { type: "IMAGE", side: "output", pos: [0, 0] }
+  const candidates = [
+    cand({ nodeId: "farAligned", side: "input", pos: [0, 300] }),   // mismo eje, lejos
+    cand({ nodeId: "nearDiag",   side: "input", pos: [50, 60] }),   // diagonal, cerca
+  ]
+  assert.deepEqual(computeQuickConnect(origin, candidates, {}).map(r => r.nodeId), ["nearDiag", "farAligned"])
+})
+
 test("max recorta el número de sugerencias", () => {
   const origin = { type: "*", side: "output" }
   const candidates = Array.from({ length: 20 }, (_, i) =>

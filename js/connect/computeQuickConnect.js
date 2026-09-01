@@ -28,9 +28,11 @@ export function isTypeCompatible(a, b) {
 /**
  * Candidatos compatibles del lado buscado, ordenados: los sockets LIBRES antes
  * que los OCUPADos (`c.occupied` — una entrada con cable puesto), y dentro de
- * cada grupo por posición vertical del nodo (paridad con quick-connections).
+ * cada grupo por cercanía real al socket de origen (distancia euclídea, no
+ * sólo vertical: un candidato pegado en diagonal debe ganarle a uno lejos
+ * pero perfectamente alineado en Y).
  *
- * @param {{type:string, side:"input"|"output"}} origin  socket del que se arrastra
+ * @param {{type:string, side:"input"|"output", pos?:[number,number]}} origin  socket del que se arrastra
  * @param {Array<{nodeId:*, slot:number, side:"input"|"output", type:string,
  *                pos:[number,number], occupied?:boolean}>} candidates
  * @param {{max?:number, match?:(from:string,to:string)=>boolean}} [opts]
@@ -39,6 +41,7 @@ export function isTypeCompatible(a, b) {
 export function computeQuickConnect(origin, candidates, opts = {}) {
   const max = opts.max ?? 15
   const match = opts.match ?? isTypeCompatible
+  const [ox, oy] = origin.pos ?? [0, 0]
 
   // Arrastrando desde una salida buscamos ENTRADAS, y al revés. El sentido del
   // enlace importa para la compatibilidad: siempre de salida hacia entrada.
@@ -50,10 +53,12 @@ export function computeQuickConnect(origin, candidates, opts = {}) {
     return match(from, to)
   })
 
-  // Libres antes que ocupados; luego por vertical; empate estable por nodo+slot.
+  const dist2 = (c) => (c.pos[0] - ox) ** 2 + (c.pos[1] - oy) ** 2
+
+  // Libres antes que ocupados; luego por cercanía; empate estable por nodo+slot.
   out.sort((p, q) =>
     (p.occupied ? 1 : 0) - (q.occupied ? 1 : 0)
-    || p.pos[1] - q.pos[1] || p.pos[0] - q.pos[0]
+    || dist2(p) - dist2(q)
     || String(p.nodeId).localeCompare(String(q.nodeId)) || p.slot - q.slot)
   return out.slice(0, max)
 }

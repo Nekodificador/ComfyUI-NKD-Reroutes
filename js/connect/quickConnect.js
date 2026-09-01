@@ -98,9 +98,10 @@ function collectCandidates(graph, origin) {
       const s = sockets[slot]
       if (!s) continue
       const pos = node.getConnectionPos(isInput, slot, [0, 0])
-      // Ocupado sólo tiene sentido en una entrada (admite un enlace); una salida
-      // abanica, así que nunca bloquea y se ofrece siempre como disponible.
-      const occupied = isInput ? s.link != null : false
+      // "Ocupado" no bloquea en ningún lado (una entrada admite reemplazo, una
+      // salida abanica) — es sólo preferencia de orden: libre antes que usado,
+      // tanto buscando entradas como buscando salidas hacia atrás.
+      const occupied = isInput ? s.link != null : (s.links?.length ?? 0) > 0
       out.push({ node, nodeId: node.id, slot, side: want, type: s.type, name: s.name || s.label || "", pos, occupied })
     }
   }
@@ -120,9 +121,9 @@ function measureWidth(canvas, items) {
 }
 
 function buildDrag(canvas, origin) {
-  const items = computeQuickConnect(origin, collectCandidates(canvas.graph, origin), { max: 15 })
-  if (!items.length) return null
   const sp = originSocketPos(origin)
+  const items = computeQuickConnect({ ...origin, pos: sp }, collectCandidates(canvas.graph, origin), { max: 15 })
+  if (!items.length) return null
   const width = measureWidth(canvas, items)
   // Lista a la derecha de una salida, a la izquierda de una entrada.
   const anchor = origin.side === "output"

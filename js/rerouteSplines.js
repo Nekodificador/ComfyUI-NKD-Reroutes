@@ -3,6 +3,7 @@ import { installMagnet } from "./magnet/dragAdapter.js"
 import { installQuickConnect } from "./connect/quickConnect.js"
 import { installQuickTemplates } from "./templates/quickTemplates.js"
 import { installNodeRuntime, refreshRuntimeDisplay } from "./runtime/nodeRuntime.js"
+import { installGroupCorners } from "./groupCorners.js"
 import { installComboNest } from "./combos/comboNest.js"
 import { installComboPreviews } from "./combos/comboPreview.js"
 import { installSavePreview, wrapNodeMenu } from "./combos/savePreview.js"
@@ -64,6 +65,7 @@ app.registerExtension({
     installQuickConnect(state)
     installQuickTemplates()
     installNodeRuntime(state)
+    installGroupCorners(state)
     installComboNest(state)
     installComboPreviews(state)
     installSavePreview()
@@ -96,6 +98,7 @@ const SLIDER_DEFS = [
   { id: "MagnetRadius", key: "magnetRadius", label: "Magnet Radius",         tip: "How close you have to drag a node before it snaps onto a neighbour.",              min: 5, max: 60,  step: 1 },
   { id: "MagnetGapY",   key: "magnetGapY",   label: "Magnet Vertical Gap",   tip: "Space left between nodes when one snaps below another in the same column.",        min: 0, max: 60,  step: 2 },
   { id: "MagnetGapX",   key: "magnetGapX",   label: "Magnet Horizontal Gap", tip: "Space left between nodes when one snaps beside another in the same row.",          min: 0, max: 120, step: 2 },
+  { id: "GroupCornerRadius", key: "groupCornerRadius", label: "Group Corner Radius", tip: "How rounded the corners of groups are. 0 = ComfyUI's square corners. Classic canvas.", min: 0, max: 40, step: 1 },
 ]
 
 // Quick lookup: stateKey → tip (for sidebar tooltips)
@@ -1422,6 +1425,11 @@ function buildPanel(el) {
     secDotTop.appendChild(makeSlider("simpleRerouteOffset", "Handle offset", 10, 120, 5))
   }
   wrap.appendChild(secDotTop)
+
+  // — GROUPS (visible en ambos modos) —
+  const secGroups = makeSection("Groups")
+  secGroups.appendChild(makeSlider("groupCornerRadius", "Corner radius", 0, 40, 1))
+  wrap.appendChild(secGroups)
 
   // — MAGNETISMO (visible en ambos modos: no tiene que ver con la tensión) —
   const secMagnet = makeSection("Magnet")

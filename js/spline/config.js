@@ -43,6 +43,7 @@ export const DEFAULTS = Object.freeze({
   magnetGapY:               12,
   magnetGuides:             true,
   magnetMatchWidth:         true,
+  groupCornerRadius:        0,     // esquinas de los grupos, en px (0 = las de fábrica)
 })
 
 // Azul NKD: fuente única del acento de todo el paquete (panel, badges de runtime,
@@ -58,7 +59,7 @@ export const NKD_ACCENT = "#4ab4ff"
 const NO_ES_GEOMETRIA = new Set([
   "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime", "heatmap", "comboNest", "comboPreviews", "comboFuzzy",
   "magnetEnabled", "magnetRadius", "magnetGapX", "magnetGapY",
-  "magnetGuides", "magnetMatchWidth",
+  "magnetGuides", "magnetMatchWidth", "groupCornerRadius",
 ])
 
 export const PRESET_KEYS = Object.keys(DEFAULTS).filter(k => !NO_ES_GEOMETRIA.has(k))
@@ -127,4 +128,5 @@ export const SETTING_ID_MAP = {
   "NKD Reroutes.MagnetGapY":       "magnetGapY",
   "NKD Reroutes.MagnetGuides":     "magnetGuides",
   "NKD Reroutes.MagnetMatchWidth": "magnetMatchWidth",
+  "NKD Reroutes.GroupCornerRadius": "groupCornerRadius",
 }

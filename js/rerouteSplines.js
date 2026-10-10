@@ -237,6 +237,7 @@ function registerSettings() {
     ["MagnetEnabled",    "magnetEnabled"],
     ["MagnetGuides",     "magnetGuides"],
     ["MagnetMatchWidth", "magnetMatchWidth"],
+    ["MagnetPush",       "magnetPush"],
   ]) {
     add({
       id:           `NKD Reroutes.${id}`,
@@ -1443,6 +1444,8 @@ function buildPanel(el) {
       "Draws a preview outline and alignment lines while a node is snapping into place."),
     makeToggle("magnetMatchWidth", "Match column width",
       "A node snapping into a column also takes that column's width. It never shrinks below its own minimum width."),
+    makeToggle("magnetPush", "Push neighbours",
+      "While Shift-dragging, whatever you drag shoves the nodes (or groups) in its way, and those shove the next ones. Drag back and they return."),
   ]
   magnetRows.forEach(r => secMagnet.appendChild(r))
 

@@ -43,6 +43,7 @@ export const DEFAULTS = Object.freeze({
   magnetGapY:               12,
   magnetGuides:             true,
   magnetMatchWidth:         true,
+  magnetPush:               false, // con Shift, lo arrastrado aparta a los vecinos
   groupCornerRadius:        0,     // esquinas de los grupos, en px (0 = las de fábrica)
 })
 
@@ -59,7 +60,7 @@ export const NKD_ACCENT = "#4ab4ff"
 const NO_ES_GEOMETRIA = new Set([
   "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime", "heatmap", "comboNest", "comboPreviews", "comboFuzzy",
   "magnetEnabled", "magnetRadius", "magnetGapX", "magnetGapY",
-  "magnetGuides", "magnetMatchWidth", "groupCornerRadius",
+  "magnetGuides", "magnetMatchWidth", "magnetPush", "groupCornerRadius",
 ])
 
 export const PRESET_KEYS = Object.keys(DEFAULTS).filter(k => !NO_ES_GEOMETRIA.has(k))
@@ -128,5 +129,6 @@ export const SETTING_ID_MAP = {
   "NKD Reroutes.MagnetGapY":       "magnetGapY",
   "NKD Reroutes.MagnetGuides":     "magnetGuides",
   "NKD Reroutes.MagnetMatchWidth": "magnetMatchWidth",
+  "NKD Reroutes.MagnetPush":       "magnetPush",
   "NKD Reroutes.GroupCornerRadius": "groupCornerRadius",
 }

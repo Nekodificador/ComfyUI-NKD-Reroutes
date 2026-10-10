@@ -1,6 +1,7 @@
 import { app } from "../../../scripts/app.js"
 import { computeSnap } from "./computeSnap.js"
-import { collectResizeTargets, collectSnapTargets, isGroup, isReroute, rectOf, unionRect } from "./snapTargets.js"
+import { computePush } from "./computePush.js"
+import { collectResizeTargets, collectSnapTargets, expandDragged, isGroup, isReroute, rectOf, unionRect } from "./snapTargets.js"
 
 // Estado del arrastre en curso. El índice de candidatos se construye una sola
 // vez, en el primer frame en que el imán está activo, y se tira al soltar.
@@ -14,6 +15,9 @@ const session = {
   // recorrido del puntero, en vez de inferirla de dónde está ahora el nodo.
   originRect:    null,
   originPointer: null,
+  // Vecinos empujables y su rectángulo al empezar (ver computePush).
+  push:          [],
+  pushFrom:      null,
 }
 
 let _reentry = false
@@ -54,7 +58,67 @@ function endSession(state, commit) {
     session.result = null
     session.originRect = null
     session.originPointer = null
+    session.push = []
+    session.pushFrom = null
   }
+}
+
+// Empujables: la misma especie que lo arrastrado —grupos con grupos, nodos con
+// nodos, como el imán—, sin lo que viaja con el arrastre ni lo anclado. Un
+// grupo metido en otro grupo no cuenta por su cuenta: ya lo lleva su padre, y
+// empujarlo también lo movería dos veces.
+//
+// Entre NODOS, los plegados quedan fuera en los dos sentidos: ni empujan ni se
+// dejan empujar. Un grupo con plegados dentro empuja y se deja empujar igual. Son pastillas que uno encaja a mano detrás o al lado de otro nodo, y
+// ahí apartar al vecino estorba más que ayuda.
+const isCollapsed = (it) => !!it.flags?.collapsed
+
+function collectPushables(graph, draggedItems) {
+  const dragged = [...draggedItems]
+  if (!graph || dragged.some(isReroute)) return []
+  const moving = expandDragged(draggedItems)
+  let pool
+  // Basta UN grupo para que sea arrastre de grupos: según los ajustes, el
+  // frontend mete también a sus hijos en la selección, y con `every` un grupo
+  // con un nodo plegado dentro se tomaba por arrastre de nodos y no empujaba.
+  if (dragged.some(isGroup)) {
+    const groups = graph.groups || []
+    // Los hijos se calculan al arrastrar un grupo; para los que empujamos hay
+    // que hacerlo aquí o se dejarían atrás los nodos añadidos después.
+    // Al ARRASTRADO no se le toca: LiteGraph ya fijó sus hijos al empezar, y
+    // recalcularlos a mitad de arrastre —que es cuando nace la sesión si pulsas
+    // Shift tarde— mide contra el bounding del frame anterior, que va por
+    // detrás: los nodos que parecen fuera se caen del grupo y se quedan atrás.
+    for (const g of groups) if (!moving.has(g)) g.recomputeInsideNodes?.()
+    const nested = new Set()
+    for (const g of groups) for (const c of g.children ?? []) if (isGroup(c)) nested.add(c)
+    pool = groups.filter(g => !nested.has(g))
+  } else {
+    if (dragged.some(isCollapsed)) return []
+    pool = (graph.nodes || []).filter(n => !isCollapsed(n))
+  }
+  return pool
+    .filter(it => !moving.has(it) && !it.pinned)
+    .map(item => ({ item, rect: rectOf(item) }))
+}
+
+// Lleva cada empujado a origen + desplazamiento. Con `shifts` nulo, de vuelta
+// al origen: es como se deshace un empuje al cancelar.
+function applyPush(shifts) {
+  session.push.forEach(({ item, rect }, i) => {
+    const now = rectOf(item)
+    const dx = rect.x + (shifts?.[i].dx ?? 0) - now.x
+    const dy = rect.y + (shifts?.[i].dy ?? 0) - now.y
+    if (dx || dy) moveItem(item, dx, dy)
+  })
+}
+
+// Cancelar por las malas (un fallo, el sistema roba el puntero): lo empujado
+// vuelve a su sitio antes de cerrar la transacción. Soltar Shift NO pasa por
+// aquí: la tecla suele llegar antes que el botón al terminar, y devolverlo todo
+// ahí se comería el empuje justo al soltar. Ya lo deshace el Ctrl+Z.
+function cancelSession(state) {
+  try { if (session.active) applyPush(null) } finally { endSession(state, false) }
 }
 
 // Nodos Y reroutes: un reroute tiene `pos` pero no `size`, así que exigir size
@@ -84,7 +148,7 @@ function runMagnetSafely(canvas, state, move = true) {
     applyMagnet(canvas, state, move)
   } catch (err) {
     console.error("[NKD Reroutes] fallo del imán, desactivado en este arrastre:", err)
-    try { endSession(state, false) } catch { /* la sesión ya quedará inconsistente; no empeorarlo */ }
+    try { cancelSession(state) } catch { /* la sesión ya quedará inconsistente; no empeorarlo */ }
   } finally {
     _reentry = false
   }
@@ -102,7 +166,16 @@ let _state = null            // el `state` vivo, para poder cerrar sesión desde
 function trackInput() {
   if (_inputBound) return
   _inputBound = true
-  addEventListener("keydown", (e) => { if (e.key === "Shift") _shiftDown = true }, true)
+  addEventListener("keydown", (e) => {
+    if (e.key !== "Shift" || e.repeat) return
+    _shiftDown = true
+    // El origen se renueva en CADA pulsación de Shift, no sólo al pulsar el
+    // botón: si arrastras sin imán hasta el lateral de un vecino y entonces
+    // pulsas Shift, el empuje tiene que medirse desde ahí. Con el origen de la
+    // primera pulsación, el recorrido salía de la posición antigua y empujaba
+    // en el eje y la dirección que no eran.
+    _rectAtDown = null
+  }, true)
   addEventListener("keyup",   (e) => { if (e.key === "Shift") _shiftDown = false }, true)
   // El puntero se rastrea siempre: es de donde sale la posición libre.
   addEventListener("pointermove", (e) => {
@@ -275,7 +348,7 @@ function installDragListener(state) {
   addEventListener("pointerup", finish, true)
 
   // Cierres de seguridad: la transacción de undo no puede quedarse abierta.
-  addEventListener("pointercancel", () => { if (session.active) endSession(state, false) }, true)
+  addEventListener("pointercancel", () => { if (session.active) cancelSession(state) }, true)
   addEventListener("blur",          () => { if (session.active) endSession(state, false) })
 }
 
@@ -304,6 +377,11 @@ function applyMagnet(canvas, state, move) {
       gapX: state.magnetGapX,
       gapY: state.magnetGapY,
     })
+    session.push = state.magnetPush ? collectPushables(canvas.graph, canvas.selectedItems) : []
+    // La sesión nace cuando la selección YA se ha movido: medir el empuje desde
+    // aquí se comería el hueco con el vecino. El rectángulo de antes de moverse
+    // es el que se apuntó al pulsar.
+    session.pushFrom = _rectAtDown ?? dragRect
   }
 
   // Posición libre: dónde estaría el nodo si el imán no existiera.
@@ -326,11 +404,24 @@ function applyMagnet(canvas, state, move) {
   }
 
   const minWidth = Math.max(...nodes.map(n => (n.computeSize?.()?.[0]) ?? 0))
-  const result = computeSnap(free, session.targets, {
+  let result = computeSnap(free, session.targets, {
     radius:     state.magnetRadius,
     matchWidth: Boolean(state.magnetMatchWidth),
     minWidth,
   })
+
+  // Empujando, el imán se calla. Sus candidatos se apuntaron al empezar, con los
+  // vecinos en su sitio original: engancharía a donde ESTABA lo que acabas de
+  // apartar. Antes del contacto sí manda, y hace de tope que te deja adosado.
+  // Se mide desde la posición libre para no depender del propio enganche.
+  let shifts = null
+  if (session.push.length) {
+    const rects = session.push.map(p => p.rect)
+    const gaps = { gapX: state.magnetGapX, gapY: state.magnetGapY }
+    shifts = computePush(session.pushFrom, free, rects, gaps)
+    if (shifts.some(p => p.dx || p.dy)) result = { dx: 0, dy: 0, width: null, guides: [] }
+    else shifts = computePush(session.pushFrom, { ...free, x: free.x + result.dx, y: free.y + result.dy }, rects, gaps)
+  }
   session.result = result
 
   // La silueta va donde caerá el nodo, con el ancho que tendrá al soltar.
@@ -339,6 +430,13 @@ function applyMagnet(canvas, state, move) {
     y: free.y + result.dy,
     w: result.width ?? free.w,
     h: free.h,
+  }
+
+  // El empuje SÍ va en vivo: los empujados no los arrastra nadie más, así que
+  // no hay carrera con Vue.
+  if (shifts) {
+    applyPush(shifts)
+    canvas.setDirty(true, true)
   }
 
   // Del sitio donde está ahora al sitio que le toca: libre + enganche.

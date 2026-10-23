@@ -1445,7 +1445,7 @@ function buildPanel(el) {
     makeToggle("magnetMatchWidth", "Match column width",
       "A node snapping into a column also takes that column's width. It never shrinks below its own minimum width."),
     makeToggle("magnetPush", "Push neighbours",
-      "While Shift-dragging, whatever you drag shoves the nodes (or groups) in its way, and those shove the next ones. Drag back and they return."),
+      "While Ctrl+Shift-dragging (Shift alone only snaps), whatever you drag shoves the nodes (or groups) in its way, and those shove the next ones. Drag back and they return."),
   ]
   magnetRows.forEach(r => secMagnet.appendChild(r))
 

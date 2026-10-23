@@ -43,7 +43,7 @@ export const DEFAULTS = Object.freeze({
   magnetGapY:               12,
   magnetGuides:             true,
   magnetMatchWidth:         true,
-  magnetPush:               false, // con Shift, lo arrastrado aparta a los vecinos
+  magnetPush:               false, // con Ctrl+Shift, lo arrastrado aparta a los vecinos
   groupCornerRadius:        0,     // esquinas de los grupos, en px (0 = las de fábrica)
 })
 

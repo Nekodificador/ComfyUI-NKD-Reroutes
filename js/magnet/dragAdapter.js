@@ -17,6 +17,10 @@ const session = {
   originPointer: null,
   // Vecinos empujables y su rectángulo al empezar (ver computePush).
   push:          [],
+  // Desde dónde se mide el empuje. Nulo = aún no se empuja: Shift solo alinea,
+  // el empuje lo enciende Ctrl (Cmd en Mac) y se queda encendido hasta soltar el
+  // botón. Si se apagara al soltar Ctrl, la tecla suele llegar antes que el
+  // botón y la pasada final del imán engancharía a donde ESTABA lo apartado.
   pushFrom:      null,
 }
 
@@ -156,6 +160,7 @@ function runMagnetSafely(canvas, state, move = true) {
 
 // Estado de teclado y puntero, compartido por los dos enganches.
 let _shiftDown = false
+let _ctrlDown = false
 let _pointerDown = false
 let _pointer = { x: 0, y: 0 }
 let _rectAtDown = null       // rectángulo de la selección al empezar a pulsar
@@ -166,6 +171,10 @@ let _state = null            // el `state` vivo, para poder cerrar sesión desde
 function trackInput() {
   if (_inputBound) return
   _inputBound = true
+  const trackCtrl = (e) => { _ctrlDown = e.ctrlKey || e.metaKey }
+  addEventListener("keydown", trackCtrl, true)
+  addEventListener("keyup",   trackCtrl, true)
+  addEventListener("blur", () => { _shiftDown = false; _ctrlDown = false })
   addEventListener("keydown", (e) => {
     if (e.key !== "Shift" || e.repeat) return
     _shiftDown = true
@@ -381,8 +390,10 @@ function applyMagnet(canvas, state, move) {
     // La sesión nace cuando la selección YA se ha movido: medir el empuje desde
     // aquí se comería el hueco con el vecino. El rectángulo de antes de moverse
     // es el que se apuntó al pulsar.
-    session.pushFrom = _rectAtDown ?? dragRect
+    if (_ctrlDown && session.push.length) session.pushFrom = _rectAtDown ?? dragRect
   }
+  // Ctrl pulsado a mitad de arrastre: se empuja desde donde estás ahora.
+  else if (_ctrlDown && session.push.length && !session.pushFrom) session.pushFrom = dragRect
 
   // Posición libre: dónde estaría el nodo si el imán no existiera.
   //
@@ -415,7 +426,7 @@ function applyMagnet(canvas, state, move) {
   // apartar. Antes del contacto sí manda, y hace de tope que te deja adosado.
   // Se mide desde la posición libre para no depender del propio enganche.
   let shifts = null
-  if (session.push.length) {
+  if (session.pushFrom) {
     const rects = session.push.map(p => p.rect)
     const gaps = { gapX: state.magnetGapX, gapY: state.magnetGapY }
     shifts = computePush(session.pushFrom, free, rects, gaps)

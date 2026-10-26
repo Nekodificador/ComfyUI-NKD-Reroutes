@@ -3,7 +3,7 @@
 // predicado de hit-test; aquí sólo hay geometría.
 
 export const BAR_W   = 6   // ancho de la barra, en px de grafo
-export const BAR_PAD = 8   // lo que sobresale la barra por encima del primer carril y por debajo del último
+export const BAR_PAD = 12  // lo que sobresale la barra por encima del primer carril y por debajo del último
 
 // Puntos a lo largo de la línea de corte, a no más de `step` px entre sí.
 export function sampleCut(a, b, step = 4) {
@@ -102,3 +102,51 @@ export function memberAtCut(rect, members, a, b) {
 export function nextBusId(buses) {
   return buses.reduce((m, b) => Math.max(m, b.id ?? 0), 0) + 1
 }
+
+// Separación actual de un bus: la que tenga (se respeta la del usuario), o la
+// de los ajustes si sólo queda un carril.
+export function busGap(members, fallback) {
+  if (members.length < 2) return fallback
+  let minY = Infinity, maxY = -Infinity
+  for (const m of members) { minY = Math.min(minY, m.y); maxY = Math.max(maxY, m.y) }
+  return (maxY - minY) / (members.length - 1)
+}
+
+// La barra que "atrapa" un punto soltado: cerca de su eje y dentro de su
+// altura, con margen. Índice en `rects`, o -1.
+export function catchBar(rects, p, margin) {
+  return rects.findIndex(r => {
+    const cx = r.x + r.w / 2
+    return Math.abs(p[0] - cx) <= margin && p[1] >= r.y - margin && p[1] <= r.y + r.h + margin
+  })
+}
+
+// Mete `dropId` en el hueco que le toca por su y y reparte los carriles desde el
+// de arriba con el paso `gap`. Sirve para reordenar (el carril ya estaba) y para
+// unir uno nuevo. Se reparte desde `top` (por defecto el carril de arriba): al
+// reordenar hay que pasar el de antes de levantar el carril, o si se levanta el
+// de arriba el bus entero bajaría un hueco.
+export function relayout(others, dropId, dropY, gap, top) {
+  const sorted = [...others].sort((a, b) => a.y - b.y)
+  top ??= sorted.length ? sorted[0].y : dropY
+  const at = sorted.filter(m => m.y < dropY).length
+  const ids = sorted.map(m => m.id)
+  ids.splice(at, 0, dropId)
+  return ids.map((id, i) => ({ id, y: top + i * gap }))
+}
+
+// Qué agarra un clic en la barra: las tapas (por fuera del primer y del último
+// carril) mueven el bus entero; el resto, el carril más cercano.
+export function grabAt(members, y) {
+  let minY = Infinity, maxY = -Infinity
+  for (const m of members) { minY = Math.min(minY, m.y); maxY = Math.max(maxY, m.y) }
+  if (y < minY - CAP_SLACK || y > maxY + CAP_SLACK) return { bus: true }
+  let best = null, bestD = Infinity
+  for (const m of members) {
+    const d = Math.abs(m.y - y)
+    if (d < bestD) { bestD = d; best = m.id }
+  }
+  return { lane: best }
+}
+
+const CAP_SLACK = 4  // px más allá del primer/último carril que todavía cuentan como ese carril

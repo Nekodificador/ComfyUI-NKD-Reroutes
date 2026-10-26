@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
   sampleCut, hitSegments, layoutLanes, reconcileBuses,
-  busRect, memberAtCut, nextBusId, onePerLink, BAR_W, BAR_PAD,
+  busRect, memberAtCut, nextBusId, onePerLink, busGap, catchBar, relayout, grabAt, BAR_W, BAR_PAD,
 } from "./computeBus.js"
 
 test("sampleCut: incluye los dos extremos y no supera el paso", () => {
@@ -104,4 +104,42 @@ test("onePerLink: un carril por cable aunque el corte cruce dos de sus tramos", 
     { seg: { links: [2, 3] }, y: 30 },   // reroute compartido que incluye el 2
   ]
   assert.deepEqual(onePerLink(hits, s => s.links).map(h => h.y), [0, 10])
+})
+
+test("busGap: la separación que ya tiene el bus, o la de los ajustes", () => {
+  assert.equal(busGap([{ y: 0 }, { y: 30 }, { y: 60 }], 20), 30)
+  assert.equal(busGap([{ y: 5 }], 20), 20)
+})
+
+test("catchBar: cerca del eje y dentro de la altura, con margen", () => {
+  const rects = [busRect([{ x: 100, y: 0 }, { x: 100, y: 40 }])]
+  assert.equal(catchBar(rects, [110, 20], 15), 0)
+  assert.equal(catchBar(rects, [130, 20], 15), -1)   // demasiado a un lado
+  assert.equal(catchBar(rects, [100, 90], 15), -1)   // muy por debajo
+})
+
+test("relayout: reordenar baja un carril al hueco de abajo sin mover el de arriba", () => {
+  // carriles a(0) b(20) c(40); se suelta a en y=30, entre b y c
+  const out = relayout([{ id: "b", y: 20 }, { id: "c", y: 40 }], "a", 30, 20)
+  assert.deepEqual(out, [{ id: "b", y: 20 }, { id: "a", y: 40 }, { id: "c", y: 60 }])
+})
+
+test("relayout: unir por arriba lo pone el primero", () => {
+  const out = relayout([{ id: "b", y: 20 }, { id: "c", y: 40 }], "n", -100, 20)
+  assert.deepEqual(out.map(m => m.id), ["n", "b", "c"])
+  assert.deepEqual(out.map(m => m.y), [20, 40, 60])
+})
+
+test("grabAt: las tapas mueven el bus, el resto el carril más cercano", () => {
+  const ms = [{ id: 1, y: 0 }, { id: 2, y: 20 }, { id: 3, y: 40 }]
+  assert.deepEqual(grabAt(ms, -10), { bus: true })
+  assert.deepEqual(grabAt(ms, 50), { bus: true })
+  assert.deepEqual(grabAt(ms, 18), { lane: 2 })
+  assert.deepEqual(grabAt(ms, -3), { lane: 1 })
+})
+
+test("relayout: con top explícito, levantar el carril de arriba no baja el bus", () => {
+  // a(0) b(20) c(40); se levanta a y se suelta abajo del todo
+  const out = relayout([{ id: "b", y: 20 }, { id: "c", y: 40 }], "a", 99, 20, 0)
+  assert.deepEqual(out, [{ id: "b", y: 0 }, { id: "c", y: 20 }, { id: "a", y: 40 }])
 })

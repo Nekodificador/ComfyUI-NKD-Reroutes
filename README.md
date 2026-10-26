@@ -149,8 +149,12 @@ board. The wires don't need to share a type or a source. Turn it on with **Rerou
 Nodes section of the sidebar (or in Settings); it's off by default.
 
 - Hold **Ctrl+Alt** and drag a line across wires on empty canvas. The wires you cut join a new bus.
-- Cut across a bar the same way to take the nearest wire out of it.
-- Click a bar to select it and drag to move it. **Delete** removes it and the wires go straight again.
+- Drag a bar at the height of a wire to move just that wire. Drop it on another slot of the bar to
+  reorder the lanes, or away from the bar to take it out (it stays as a normal reroute).
+- Drag a loose reroute onto a bar to add its wire to the bus, in the slot where you drop it.
+- Cut across a bar the same way to take the nearest wire out and remove its reroute.
+- Grab a bar by its ends (above the first wire or below the last) to move the whole bus. **Delete**
+  removes it and the wires go straight again.
 - Cut wires that already run through a bus, further along, to branch off a second one.
 - One Ctrl+Z undoes any of these.
 

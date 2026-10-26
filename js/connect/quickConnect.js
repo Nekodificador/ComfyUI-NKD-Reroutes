@@ -52,7 +52,7 @@ function rr(ctx, x, y, w, h, r) {
 }
 
 // Cursor en coordenadas de GRAFO desde el evento — válido en clásico y 2.0.
-function eventGraphPos(canvas, e) {
+export function eventGraphPos(canvas, e) {
   const el = canvas.canvas
   if (!el || e?.clientX == null) return [canvas.graph_mouse?.[0] ?? 0, canvas.graph_mouse?.[1] ?? 0]
   const rect = el.getBoundingClientRect()

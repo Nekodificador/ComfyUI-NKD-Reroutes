@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js"
 import { installMagnet } from "./magnet/dragAdapter.js"
 import { installQuickConnect } from "./connect/quickConnect.js"
+import { installBus, busBeginFrame, busDraw, isBusMember } from "./bus/busAdapter.js"
 import { installQuickTemplates } from "./templates/quickTemplates.js"
 import { installNodeRuntime, refreshRuntimeDisplay } from "./runtime/nodeRuntime.js"
 import { installGroupCorners } from "./groupCorners.js"
@@ -63,6 +64,7 @@ app.registerExtension({
     registerSidebarPanel()
     installMagnet(state)
     installQuickConnect(state)
+    installBus(state)
     installQuickTemplates()
     installNodeRuntime(state)
     installGroupCorners(state)
@@ -893,7 +895,12 @@ function patchDrawConnections() {
         _patchedReroutes.add(proto)
       }
     }
-    return orig.apply(this, arguments)
+    // El bus deriva sus barras antes de dibujar (los puntos de sus reroutes se
+    // ocultan en el dibujado) y las pinta después, encima de los cables.
+    busBeginFrame(this.graph)
+    const out = orig.apply(this, arguments)
+    try { busDraw(ctx, this.graph) } catch (err) { console.warn("[NKD Reroutes] bus", err) }
+    return out
   }
 }
 
@@ -903,6 +910,8 @@ function applyReroutePatches(proto) {
 
   // A. Draw as a dot with custom radius
   proto.draw = function (ctx, backgroundPattern) {
+    // Los reroutes de un bus no se pintan: los representa la barra.
+    if (isBusMember(this.id)) return
     const globalAlpha = ctx.globalAlpha
     const pos = this.pos
     const r   = state.rerouteRadius

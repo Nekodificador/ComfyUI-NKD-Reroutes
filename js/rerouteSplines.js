@@ -83,6 +83,7 @@ const SLIDER_DEFS = [
   { id: "NodePull",                 key: "nodeFactor",           label: "Node Pull",                tip: "Extra roundness at the wire ends that touch a node socket.",                                 min: 0.1, max: 2.0,  step: 0.1  },
   { id: "ReroutePull",              key: "rerouteFactor",        label: "Reroute Pull",             tip: "Same, for the ends that touch a reroute dot. Below Node Pull keeps chains of reroutes tight.", min: 0.1, max: 2.0, step: 0.1 },
   { id: "RerouteDotSize",           key: "rerouteRadius",        label: "Reroute Dot Size",         tip: "How big the reroute dot looks on screen. It never goes below 3 so it stays easy to click.", min: 3,   max: 15,   step: 1    },
+  { id: "BusLaneGap",               key: "busLaneGap",           label: "Bus Lane Gap",             tip: "Space between the wires of a NEW bus (Ctrl+Alt+drag across wires). At 20 or more the reroute dots stay readable for people who open your workflow without NKD Reroutes; lower is tighter but their dots overlap. Existing buses keep their spacing.", min: 6, max: 40, step: 1 },
   { id: "NonLinear",                key: "nonLinear",            label: "Elasticity",               tip: "Makes short and long wires look more different from each other. Above 1.0 = long wires open up while short ones stay tight; below 1.0 = every wire curves about the same. The turning point is Socket Offset Max.", min: 0.1, max: 2.0,  step: 0.1  },
   { id: "DistFactor",               key: "distFactor",           label: "Distance Stretch",         tip: "Grows every handle in direct proportion to how far apart the nodes are — this is what makes long wires look stretched instead of flat. 0 = off, 1 = close to ComfyUI's classic look.",                     min: 0,   max: 2.0,  step: 0.05 },
   { id: "CrossingMargin",           key: "crossingMargin",       label: "Crossing Width",           tip: "How much horizontal travel the forward-to-backward transition is spread over. The wire starts growing its loop this many pixels BEFORE the target crosses the source, and finishes this many pixels after. Small values make the loop pop in abruptly.",                                          min: 0,   max: 300,  step: 10   },
@@ -180,6 +181,16 @@ function registerSettings() {
     type:         "boolean",
     defaultValue: DEFAULTS.quickConnect,
     onChange(v)  { state.quickConnect = Boolean(v) },
+  })
+
+  // --- Bus de reroutes. Visible en Settings + toggle en el panel ---
+  add({
+    id:           "NKD Reroutes.RerouteBus",
+    name:         "Reroute bus (Ctrl+Alt+drag)",
+    tooltip:      "Hold Ctrl+Alt and drag a line across wires on empty canvas: the wires you cut are gathered into a bus, a bar they run through side by side. Cut across a bar to take one wire out. Without NKD Reroutes the bus is a column of normal reroutes, so the workflow works anywhere.",
+    type:         "boolean",
+    defaultValue: DEFAULTS.rerouteBus,
+    onChange(v)  { state.rerouteBus = Boolean(v); redraw() },
   })
 
   // --- Runtime por nodo (Fase 3). Visible en Settings + toggle en el panel ---
@@ -1390,6 +1401,10 @@ function buildPanel(el) {
   secNodes.appendChild(makeToggle("quickConnect", "Quick-connect (Ctrl+drag)",
     "Hold Ctrl while dragging a wire from a socket to get a list of nearby compatible sockets — " +
     "release on one to connect. Free inputs first, occupied ones after.", true))
+  secNodes.appendChild(makeToggle("rerouteBus", "Reroute bus (Ctrl+Alt+drag)",
+    "Hold Ctrl+Alt and drag across wires on empty canvas to gather them into a bus. Cut across " +
+    "a bar to take one wire out; click a bar to select and move it. Without NKD Reroutes it shows " +
+    "as a column of normal reroutes.", true))
   secNodes.appendChild(makeToggle("nodeRuntime", "Show node runtime",
     "After a run, each node shows a badge with how long it took to execute. Works on the classic " +
     "canvas and Nodes 2.0.", true))
@@ -1422,6 +1437,7 @@ function buildPanel(el) {
   // — REROUTE DOT (always visible in both modes) —
   const secDotTop = makeSection("Reroute Dot")
   secDotTop.appendChild(makeSlider("rerouteRadius", "Dot size", 3, 15, 1))
+  secDotTop.appendChild(makeSlider("busLaneGap", "Bus lane gap", 6, 40, 1))
   if (state.mode === "Simple") {
     secDotTop.appendChild(makeSlider("simpleRerouteOffset", "Handle offset", 10, 120, 5))
   }

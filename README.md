@@ -142,6 +142,27 @@ simply takes over when there is something to align against.
 
 ---
 
+## Reroute bus
+
+Gathers several wires into one bar they run through side by side, like the lanes of a circuit
+board. The wires don't need to share a type or a source. Turn it on with **Reroute bus** in the
+Nodes section of the sidebar (or in Settings); it's off by default.
+
+- Hold **Ctrl+Alt** and drag a line across wires on empty canvas. The wires you cut join a new bus.
+- Cut across a bar the same way to take the nearest wire out of it.
+- Click a bar to select it and drag to move it. **Delete** removes it and the wires go straight again.
+- Cut wires that already run through a bus, further along, to branch off a second one.
+- One Ctrl+Z undoes any of these.
+
+A bus is built from normal reroutes, one per wire. Someone who opens your workflow without this
+extension sees a tidy column of reroute dots and everything still runs.
+
+| Setting | Range | Default | What it does |
+|---|---|---|---|
+| Bus lane gap | 6 – 40 px | 20 | Space between the wires of a new bus. At 20 or more the dots stay readable for people without the extension. Existing buses keep their spacing. |
+
+---
+
 ## Nodes
 
 | Setting | Default | What it does |

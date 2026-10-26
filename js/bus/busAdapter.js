@@ -19,11 +19,12 @@ import { NKD_ACCENT } from "../spline/config.js"
 import { eventGraphPos } from "../connect/quickConnect.js"
 import {
   sampleCut, hitSegments, layoutLanes, reconcileBuses,
-  busRect, memberAtCut, nextBusId,
+  busRect, memberAtCut, nextBusId, onePerLink, BAR_W,
 } from "./computeBus.js"
 
 const BAR_FILL = "#dddddd"
 const CUT_COLOR = "#ff3b3b"
+const MIN_CUT   = 4   // px de grafo: por debajo es un clic, no un corte
 
 let cfg = null
 let members = new Set()   // ids de reroute que están en algún bus (frame actual)
@@ -96,7 +97,9 @@ function segmentsHit(cv, a, b) {
   ctx.lineWidth = (cv.connections_width ?? 3) + 4
   const hits = hitSegments(sampleCut(a, b), segs, (s, x, y) => ctx.isPointInStroke(s.path, x, y))
   ctx.restore()
-  return hits
+  // Un cable tiene un segmento por tramo (uno por reroute más el final): si el
+  // corte cruza dos tramos del mismo cable, un solo carril, o pasaría dos veces.
+  return onePerLink(hits, s => s.linkIds ? [...s.linkIds] : [s.id])
 }
 
 function createBus(graph, cv, a, b) {
@@ -151,8 +154,13 @@ function onDown(e) {
     return
   }
   if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return
+  // Las barras se pintan bajo los nodos: un nodo encima se lleva el clic.
+  if (graph.getNodeOnPos?.(p[0], p[1])) return
 
-  const bar = bars.find(b => inside(b.rect, p, 4))
+  // El margen cubre al menos la zona de clic del reroute oculto de debajo; si
+  // no, un clic al lado de la barra arrastraría un solo carril invisible.
+  const margin = Math.max(4, Math.max(10, cfg.rerouteRadius * 1.5) - BAR_W / 2)
+  const bar = bars.find(b => inside(b.rect, p, margin))
   if (!bar) return
   const items = bar.members.map(m => graph.reroutes.get(m.id)).filter(Boolean)
   cv.deselectAll?.()
@@ -164,6 +172,8 @@ function onDown(e) {
 
 function onMove(e) {
   if (!cut && !drag) return
+  // Botón ya suelto sin que llegara el pointerup (se perdió fuera de la ventana).
+  if ((e.buttons & 1) === 0) { cancel(); return }
   const cv = app.canvas
   const p = eventGraphPos(cv, e)
   if (cut) {
@@ -184,7 +194,8 @@ function onUp(e) {
   try {
     if (cut) {
       const graph = cv.graph
-      if (!removeFromBus(graph, cut.a, cut.b)) createBus(graph, cv, cut.a, cut.b)
+      const long = Math.hypot(cut.b[0] - cut.a[0], cut.b[1] - cut.a[1]) >= MIN_CUT
+      if (long && !removeFromBus(graph, cut.a, cut.b)) createBus(graph, cv, cut.a, cut.b)
     } else {
       drag.graph.afterChange()
     }
@@ -198,9 +209,21 @@ function onUp(e) {
   }
 }
 
+// Cierre de seguridad: si el pointerup no llega (Alt-Tab, pointercancel), la
+// transacción de undo no puede quedarse abierta —el ChangeTracker deja de
+// guardar historial mientras haya una— ni el corte colgado del cursor.
+function cancel() {
+  if (drag) drag.graph.afterChange()
+  cut = null
+  drag = null
+  app.canvas?.setDirty(true, true)
+}
+
 export function installBus(state) {
   cfg = state
   window.addEventListener("pointerdown", onDown, true)
   window.addEventListener("pointermove", onMove, true)
   window.addEventListener("pointerup",   onUp,   true)
+  window.addEventListener("pointercancel", () => { if (cut || drag) cancel() }, true)
+  window.addEventListener("blur",          () => { if (cut || drag) cancel() })
 }

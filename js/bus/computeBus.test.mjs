@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
   sampleCut, hitSegments, layoutLanes, reconcileBuses,
-  busRect, memberAtCut, nextBusId, BAR_W, BAR_PAD,
+  busRect, memberAtCut, nextBusId, onePerLink, BAR_W, BAR_PAD,
 } from "./computeBus.js"
 
 test("sampleCut: incluye los dos extremos y no supera el paso", () => {
@@ -94,4 +94,14 @@ test("memberAtCut: no cruza la barra → null", () => {
 test("nextBusId: uno más que el mayor", () => {
   assert.equal(nextBusId([]), 1)
   assert.equal(nextBusId([{ id: 3 }, { id: 7 }]), 8)
+})
+
+test("onePerLink: un carril por cable aunque el corte cruce dos de sus tramos", () => {
+  const hits = [
+    { seg: { links: [1] },    y: 0 },
+    { seg: { links: [2] },    y: 10 },
+    { seg: { links: [1] },    y: 20 },   // otro tramo del cable 1
+    { seg: { links: [2, 3] }, y: 30 },   // reroute compartido que incluye el 2
+  ]
+  assert.deepEqual(onePerLink(hits, s => s.links).map(h => h.y), [0, 10])
 })

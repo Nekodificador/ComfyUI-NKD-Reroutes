@@ -36,6 +36,18 @@ export function hitSegments(cutPts, segments, onStroke) {
   return hits
 }
 
+// Un carril por cable: se queda el primer impacto de cada uno. `linksOf(seg)`
+// da los ids de cable de un segmento (un reroute compartido lleva varios).
+export function onePerLink(hits, linksOf) {
+  const seen = new Set()
+  return hits.filter(h => {
+    const ids = linksOf(h.seg)
+    if (ids.some(id => seen.has(id))) return false
+    for (const id of ids) seen.add(id)
+    return true
+  })
+}
+
 // Carriles del bus: ordenados por la y en que la línea cruza cada cable —así no
 // se cruzan entre sí—, centrados en la y media y separados `gap`. La barra va
 // en la x media del corte.

@@ -172,3 +172,7 @@ The orthogonal routing engine behind PCB mode comes from
 [comfyui-cable-management](https://github.com/vtokic/comfyui-cable-management) by Vedran Aberle
 Tokić, used under the MIT licence. Go and have a look at it — it does a great deal more with the
 idea than this extension does.
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).

@@ -15,6 +15,9 @@ function shrinkAll() {
   try {
     for (const node of graph.nodes) {
       if (node.flags?.collapsed || node.flags?.pinned || node.resizable === false) continue
+      // Sin widgets ni sockets no hay contenido que mida el mínimo: el tamaño de un
+      // nodo así (un marco de anotación) es libre y no sobra nada.
+      if (!node.widgets?.length && !node.inputs?.length && !node.outputs?.length) continue
       const min = node.computeSize?.()
       // Sólo el alto: el ancho lo has elegido tú y no sobra por el cambio de
       // renderizador. Y sólo hacia abajo, para no estirar lo que ya está justo.

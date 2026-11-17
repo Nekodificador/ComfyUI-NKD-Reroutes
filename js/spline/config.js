@@ -16,9 +16,11 @@ export const DEFAULTS = Object.freeze({
   quickConnect:             false,  // soltar un cable en vacío ofrece sockets compatibles cercanos
   nodeRuntime:              false,  // badge con el tiempo de ejecución de cada nodo
   heatmap:                  false,  // colorear cable/reroute por el runtime del nodo aguas abajo
-  comboNest:                false,  // agrupar dropdowns en subcarpetas + filtro recursivo (clásico)
+  comboNest:                false,  // agrupar dropdowns en subcarpetas + filtro recursivo (clásico y Nodos 2.0)
   comboPreviews:            false,  // miniatura del modelo al pasar el ratón por el combo (clásico)
   comboFuzzy:               false,  // filtro fuzzy (por subsecuencia) en los desplegables (clásico)
+  rerouteBus:               false,  // Ctrl+Alt+arrastrar agrupa los cables cortados en un bus
+  busLaneGap:               20,     // separación entre carriles de un bus nuevo, en px (20 = los puntos nativos no se pisan)
   simpleRerouteOffset:      40,
   minSplineOffset:          10,
   handleFactor:             1.0,
@@ -58,7 +60,7 @@ export const NKD_ACCENT = "#4ab4ff"
 // pcbEnabled no es geometría de la curva: es ELEGIR RENDERIZADOR. Si entrase en
 // los presets, cargar un estilo de cable te sacaría del modo PCB sin pedirlo.
 const NO_ES_GEOMETRIA = new Set([
-  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime", "heatmap", "comboNest", "comboPreviews", "comboFuzzy",
+  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime", "heatmap", "comboNest", "comboPreviews", "comboFuzzy", "rerouteBus", "busLaneGap",
   "magnetEnabled", "magnetRadius", "magnetGapX", "magnetGapY",
   "magnetGuides", "magnetMatchWidth", "magnetPush", "groupCornerRadius",
 ])
@@ -108,6 +110,8 @@ export const SETTING_ID_MAP = {
   "NKD Reroutes.ComboNest":              "comboNest",
   "NKD Reroutes.ComboPreviews":          "comboPreviews",
   "NKD Reroutes.ComboFuzzy":             "comboFuzzy",
+  "NKD Reroutes.RerouteBus":             "rerouteBus",
+  "NKD Reroutes.BusLaneGap":             "busLaneGap",
   "NKD Reroutes.SimpleRerouteOffset":    "simpleRerouteOffset",
   "NKD Reroutes.WireCurvature":          "handleFactor",
   "NKD Reroutes.NodePull":               "nodeFactor",

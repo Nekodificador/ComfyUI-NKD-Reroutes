@@ -9,9 +9,9 @@
 // encuentra la hoja esté en la subcarpeta que esté. Una regla CSS aplana el árbol
 // mientras el filtro tiene texto. Mecanismo calcado de pysssss betterCombos (MIT).
 //
-// En Nodos 2.0 los combos no usan `.litecontextmenu` (los pinta PrimeVue/reka-ui,
-// que ya es lista plana con filtro recursivo nativo), así que este observer no
-// dispara — correcto: allí no hay nada que arreglar.
+// En Nodos 2.0 el combo lo pinta reka-ui como lista plana. Ahí se intercepta el clic
+// y se abre este mismo menú clásico (ver `onVueClick`), así que todo lo de abajo vale
+// igual en los dos renderizadores.
 //
 // ponytail: sin previews/thumbnails ni modo grid (eso es de pysssss y lleva
 // backend). Aquí sólo carpetas + filtro recursivo.
@@ -45,6 +45,34 @@ function injectCss() {
 
 /* Entrada resaltada por navegación con teclado. */
 .nkd-combo-kbd { background-color: #2a4a6b !important; color: #fff !important; }
+
+/* Abierto desde Nodos 2.0: mismo aspecto que el desplegable nativo de reka (medido:
+   Inter 12px, filas de 32px, radio 8px, buscador con lupa y borde). Sólo estética. */
+.litecontextmenu.nkd-vue-combo {
+  background: var(--base-background, #13171d) !important; color: var(--base-foreground, #e5eaf0) !important;
+  border: 1px solid var(--border-default, #3d4148) !important; border-radius: 8px !important;
+  box-shadow: 1px 1px 8px rgba(0,0,0,0.4) !important; padding: 4px !important;
+  font: 12px Inter, Arial, sans-serif !important; min-width: var(--nkd-w, 0); box-sizing: border-box;
+}
+.nkd-vue-combo .comfy-context-menu-filter {
+  display: block; width: 100%; box-sizing: border-box; margin: 0 0 4px; padding: 6px 8px 6px 30px;
+  border: 1px solid var(--border-default, #3d4148); border-radius: 6px; outline: none;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") no-repeat 9px center;
+  color: inherit; font: inherit;
+}
+.nkd-vue-combo .comfy-context-menu-filter:focus { border-color: var(--ring, #999); }
+.nkd-vue-combo .litemenu-entry {
+  height: 32px; line-height: 32px; box-sizing: border-box; padding-right: 8px !important; margin: 0;
+  border-radius: 4px; border: none !important; background: transparent !important;
+  color: var(--base-foreground, #e5eaf0) !important; font-size: 12px !important; white-space: nowrap;
+}
+.nkd-vue-combo .litemenu-entry:hover, .nkd-vue-combo .nkd-combo-kbd {
+  background: var(--secondary-background-hover, #262a30) !important;
+}
+.nkd-vue-combo .nkd-combo-folder { opacity: 1; color: var(--muted-foreground, #999) !important; }
+.nkd-vue-combo .nkd-combo-folder-arrow { font-size: 9px; }
+.nkd-vue-combo .nkd-combo-current { background: color-mix(in srgb, var(--base-foreground, #fff) 10%, transparent) !important; }
+.nkd-vue-combo .nkd-combo-current::after { content: "✓"; float: right; padding-left: 12px; }
 `
   document.head.appendChild(s)
 }
@@ -109,7 +137,8 @@ function buildTreeDom(menu, entries) {
 // la lista larga (acababa pegado al techo). Se recoloca junto al ratón y se acota
 // la altura a la pantalla. Calcado de pysssss (last_mouse es coord de cliente).
 function reposition(menu) {
-  const mouse = app.canvas?.last_mouse
+  const mouse = _openAt ?? app.canvas?.last_mouse
+  _openAt = null
   const rect = menu.getBoundingClientRect()
   // Sin ratón fiable ([0,0] = inactivo): no mover al rincón, sólo acotar la altura.
   if (!mouse || (mouse[0] === 0 && mouse[1] === 0)) {
@@ -204,11 +233,98 @@ function processMenu(menu) {
   nestIfNeeded(menu)
 }
 
+// ── Nodos 2.0 ────────────────────────────────────────────────────────────────
+// Truco descubierto por Kijai (KJNodes vue_combo.js): un `click` en CAPTURA de window
+// sobre el disparador del combo de Vue corre antes que reka, así que se le puede
+// quitar la apertura de su lista plana. Kijai abre ahí un panel propio y sólo para
+// valores "carpeta/fichero.ext" (por eso los samplers de ClownShark, "multistep/res_2m",
+// se quedaban planos). Aquí se abre el MENÚ CLÁSICO de LiteGraph con los mismos
+// valores: el observer de abajo lo anida igual que en el canvas clásico, y con él
+// vienen gratis el filtro recursivo, el fuzzy, el teclado y las previews de modelo.
+const VUE_TRIGGER = '[data-testid="widget-select-default-trigger"]'
+const VUE_OPENERS = `${VUE_TRIGGER}, button[aria-hidden="true"]:has(> i[class*="chevron-down"])`
+let _openAt = null   // dónde recolocar el menú (coords de cliente); la siguiente reposition lo consume
+
+function resolveVueCombo(trigger) {
+  const nodeEl = trigger?.closest("[data-node-id]")
+  if (!nodeEl || trigger.disabled) return null
+  const node = app.canvas?.graph?.getNodeById(nodeEl.dataset.nodeId)
+  const label = trigger.getAttribute("aria-label")
+  // combos con la misma etiqueta (entradas promocionadas) se emparejan por orden en el DOM
+  const twins = [...nodeEl.querySelectorAll(VUE_TRIGGER)].filter((t) => t.getAttribute("aria-label") === label)
+  const widget = node?.widgets?.filter((w) => w.type === "combo" && (w.label || w.name) === label)[twins.indexOf(trigger)]
+  if (!widget || widget.options?.getOptionLabel) return null   // opciones con etiqueta: no son rutas
+  let values = widget.options?.values
+  if (typeof values === "function") values = values(widget, node)
+  return Array.isArray(values) ? { node, widget, values: values.filter((v) => v != null) } : null
+}
+
+function applyVueValue({ node, widget }, value) {
+  if (value === widget.value) return
+  if (widget.setValue) widget.setValue(value, { node, canvas: app.canvas })
+  else {   // widgets promocionados de subgrafo: proyecciones sin setValue
+    const old = widget.value
+    widget.value = value
+    widget.callback?.(value, app.canvas, node)
+    node.onWidgetChanged?.(widget.name, value, old, widget)
+  }
+  const tracker = app.extensionManager?.workflow?.activeWorkflow?.changeTracker
+  ;(tracker?.captureCanvasState ?? tracker?.checkState)?.call(tracker)
+}
+
+function onVueClick(e) {
+  // Si otra extensión ya se quedó el clic (el modo carpetas de KJNodes), no abrir dos menús.
+  if (!cfg?.comboNest || e.defaultPrevented) return
+  const anchor = e.target.closest?.(VUE_OPENERS)?.parentElement
+  const trigger = anchor?.querySelector(`:scope > ${VUE_TRIGGER}`)
+  if (!trigger) return
+  const combo = resolveVueCombo(trigger)
+  if (!combo || combo.values.length < THRESHOLD || !combo.values.some((v) => SPLIT.test(String(v)))) return
+  e.preventDefault()
+  e.stopPropagation()
+  const LG = window.LiteGraph
+  if (!LG?.ContextMenu) return
+  const r = anchor.getBoundingClientRect()
+  _openAt = [r.left + 10, r.bottom + 10]           // reposition resta 10: queda justo debajo
+  app.canvas.current_node = combo.node              // el filtro del core marca así el valor actual
+  const menu = new LG.ContextMenu(combo.values, {
+    event: e,
+    className: "dark",                              // sin esto el core no le pone el filtro
+    callback: (v) => applyVueValue(combo, v),       // sin `scale`: el nativo de 2.0 no se escala con el zoom
+  })
+  const root = menu.root
+  if (!root) return
+  root.classList.add("nkd-vue-combo")
+  root.style.setProperty("--nkd-w", `${r.width}px`)
+  // Doble rAF: el anidado corre en un rAF que el observer pide DESPUÉS de este handler.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const input = root.querySelector(".comfy-context-menu-filter")
+    if (input) {
+      input.placeholder = " "                       // vacío como el nativo; " " mantiene :placeholder-shown
+      input.focus({ preventScroll: true })          // como el nativo: abrir y escribir
+    }
+    // El core pinta el valor actual en #ccc con estilo inline !important: se le quita y se
+    // marca a la manera nativa, abriendo las carpetas que lo contienen.
+    const cur = [...root.querySelectorAll(".litemenu-entry")].find((en) => valueOf(en) === String(combo.widget.value))
+    if (!cur) return
+    cur.style.removeProperty("background-color")
+    cur.style.removeProperty("color")
+    cur.classList.add("nkd-combo-current")
+    for (let c = cur.parentElement?.closest(".nkd-combo-folder-contents"); c; c = c.parentElement?.closest(".nkd-combo-folder-contents")) {
+      c.style.display = "block"
+      const arrow = c.previousElementSibling?.querySelector(".nkd-combo-folder-arrow")
+      if (arrow) arrow.textContent = "▼"
+    }
+    cur.scrollIntoView({ block: "nearest" })
+  }))
+}
+
 export function installComboNest(state) {
   cfg = state
   if (_installed) return
   _installed = true
   injectCss()
+  window.addEventListener("click", onVueClick, true)
   const obs = new MutationObserver((muts) => {
     if (!cfg?.comboNest && !cfg?.comboFuzzy) return
     for (const m of muts) {

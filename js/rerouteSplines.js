@@ -215,11 +215,11 @@ function registerSettings() {
     onChange(v)  { state.heatmap = Boolean(v); refreshRuntimeDisplay() },
   })
 
-  // --- Combos en subcarpetas + filtro recursivo (Fase 4, clásico). Settings + panel ---
+  // --- Combos en subcarpetas + filtro recursivo (Fase 4, clásico y Nodos 2.0). Settings + panel ---
   add({
     id:           "NKD Reroutes.ComboNest",
     name:         "Group dropdowns into folders",
-    tooltip:      "Classic canvas only: long dropdowns with '/' in their names (checkpoints, LoRAs) are grouped into collapsible folders, and typing in the filter searches recursively across every subfolder. Nodes 2.0 already does this natively.",
+    tooltip:      "Long dropdowns with '/' in their names (checkpoints, LoRAs, RES4LYF samplers) are grouped into collapsible folders, and typing in the filter searches recursively across every subfolder. Works on the classic canvas and Nodes 2.0.",
     type:         "boolean",
     defaultValue: DEFAULTS.comboNest,
     onChange(v)  { state.comboNest = Boolean(v) },
@@ -1421,9 +1421,10 @@ function buildPanel(el) {
     "Colours each node's runtime badge by relative cost: dark blue = fast, orange = slow. " +
     "Colourblind-safe. Run a workflow first.", true))
   secNodes.appendChild(makeToggle("comboNest", "Group dropdowns into folders",
-    "Classic canvas only: long dropdowns with '/' in their names are grouped into collapsible " +
-    "folders, and the filter searches recursively across every subfolder. Nodes 2.0 does this " +
-    "natively.", true))
+    "Long dropdowns with '/' in their names (models, LoRAs, RES4LYF samplers...) are grouped " +
+    "into collapsible folders, and the filter searches recursively across every subfolder. " +
+    "Works on the classic canvas and Nodes 2.0 (if KJNodes' own folder view is on, it keeps the " +
+    "dropdowns it handles).", true))
   secNodes.appendChild(makeToggle("comboPreviews", "Show model previews",
     "Classic canvas only: hovering a model in a dropdown shows its preview thumbnail (from the " +
     "model's sidecar image or embedded cover). Nodes 2.0 shows them in its Model Library.", true))

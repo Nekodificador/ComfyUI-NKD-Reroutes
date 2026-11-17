@@ -16,7 +16,7 @@ export const DEFAULTS = Object.freeze({
   quickConnect:             false,  // soltar un cable en vacío ofrece sockets compatibles cercanos
   nodeRuntime:              false,  // badge con el tiempo de ejecución de cada nodo
   heatmap:                  false,  // colorear cable/reroute por el runtime del nodo aguas abajo
-  comboNest:                false,  // agrupar dropdowns en subcarpetas + filtro recursivo (clásico)
+  comboNest:                false,  // agrupar dropdowns en subcarpetas + filtro recursivo (clásico y Nodos 2.0)
   comboPreviews:            false,  // miniatura del modelo al pasar el ratón por el combo (clásico)
   comboFuzzy:               false,  // filtro fuzzy (por subsecuencia) en los desplegables (clásico)
   rerouteBus:               false,  // Ctrl+Alt+arrastrar agrupa los cables cortados en un bus

@@ -10,6 +10,7 @@ import { installComboPreviews } from "./combos/comboPreview.js"
 import { installSavePreview, wrapNodeMenu } from "./combos/savePreview.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
+import { WORKFLOW_IMAGE_COMMANDS, workflowImageMenuItems } from "./export/workflowImage.js"
 import { computeTension } from "./spline/tension.js"
 import { computeArrange } from "./layout/arrange.js"
 import { rectOf, socketPos } from "./magnet/snapTargets.js"
@@ -47,7 +48,14 @@ app.registerExtension({
       label: "NKD Reroutes: Auto-arrange workflow",
       function: () => applyArrange(state),
     },
+    ...WORKFLOW_IMAGE_COMMANDS,
   ],
+  // Menú superior (Workflow → Workflow Image (WebP)) y clic derecho en el canvas:
+  // los dos existen igual en el clásico y en Nodes 2.0.
+  menuCommands: [
+    { path: ["Workflow", "Workflow Image (WebP)"], commands: WORKFLOW_IMAGE_COMMANDS.map(c => c.id) },
+  ],
+  getCanvasMenuItems: () => workflowImageMenuItems(),
   // Shift+A está libre en ComfyUI (sólo existen 'a' y ctrl+a).
   // Alt+1..9 (plantillas) va por listener de teclado en installQuickTemplates,
   // no aquí: el keybinding declarativo alt+dígito no dispara en el frontend actual.

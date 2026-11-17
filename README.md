@@ -178,6 +178,22 @@ height, which removes the empty band the Vue layout leaves behind.
 
 ---
 
+## Workflow image
+
+Export the whole workflow as a **WebP** screenshot with the workflow embedded: drop the file onto
+any ComfyUI (no extension needed) and the graph loads. WebP is roughly half the size of the PNG
+equivalent, so it is light enough for a README or a web page.
+
+Find it in **Workflow → Workflow Image (WebP)** in the top menu, in the command palette, or by
+right-clicking the canvas. Works with the classic canvas and with Nodes 2.0, and each one is
+exported with its own look. There is also a variant without the embedded workflow. A Nodes 2.0
+export takes a few seconds, because the nodes are rendered from the page itself.
+
+The workflow survives wherever the original file is served, such as a file committed to a GitHub
+repo or attached to a release. Sites that re-compress images strip it.
+
+---
+
 ## Using the sidebar sliders
 
 Every slider in the **NKD Wires** tab can be set three ways:
@@ -197,6 +213,12 @@ The orthogonal routing engine behind PCB mode comes from
 [comfyui-cable-management](https://github.com/vtokic/comfyui-cable-management) by Vedran Aberle
 Tokić, used under the MIT licence. Go and have a look at it — it does a great deal more with the
 idea than this extension does.
+
+The workflow image export is a rework of "Workflow Image" from
+[ComfyUI-Custom-Scripts](https://github.com/pythongosssss/ComfyUI-Custom-Scripts) by pythongosssss
+(MIT). Nodes 2.0 exports are rendered with
+[html-to-image](https://github.com/bubkoo/html-to-image) by W.Y. (MIT), bundled unmodified in
+`js/vendor/`.
 
 ## License
 

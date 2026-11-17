@@ -12,7 +12,7 @@ import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { computeTension } from "./spline/tension.js"
 import { computeArrange } from "./layout/arrange.js"
-import { rectOf } from "./magnet/snapTargets.js"
+import { rectOf, socketPos } from "./magnet/snapTargets.js"
 import { beginFrame, emitRoute, routeFor } from "./route/pcb.js"
 import { DEFAULTS, PRESETS, PRESET_KEYS, SETTING_ID_MAP, NKD_ACCENT } from "./spline/config.js"
 
@@ -448,7 +448,7 @@ function applyArrange(state) {
       // no depende de dónde esté). Con esto el motor alinea a socket de forma exacta,
       // incluso en colapsados / Nodes 2.0 / nodos con widgets, sin constantes.
       const socketOff = (isInput, slot) => {
-        try { return n.getConnectionPos(isInput, slot, [0, 0])[1] - n.pos[1] } catch { return null }
+        try { return socketPos(n, isInput, slot)[1] - n.pos[1] } catch { return null }
       }
       return {
         id: n.id,
@@ -502,7 +502,7 @@ function shrinkIfHuge(node) {
 function repositionReroutes(graph, getLink, inWork) {
   const reroutes = graph.reroutes
   if (!reroutes?.values) return
-  const socket = (node, isInput, slot) => { try { return node.getConnectionPos(isInput, slot, [0, 0]) } catch { return node.pos ? [node.pos[0], node.pos[1]] : null } }
+  const socket = (node, isInput, slot) => { try { return socketPos(node, isInput, slot) } catch { return node.pos ? [node.pos[0], node.pos[1]] : null } }
   const done = new Set()
   for (const rr of reroutes.values()) {
     if (done.has(rr.id)) continue

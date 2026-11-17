@@ -27,7 +27,7 @@
 
 import { app } from "../../../scripts/app.js"
 import { computeQuickConnect } from "./computeQuickConnect.js"
-import { rectOf } from "../magnet/snapTargets.js"
+import { rectOf, socketPos } from "../magnet/snapTargets.js"
 import { NKD_ACCENT } from "../spline/config.js"
 
 const LG = () => globalThis.LiteGraph
@@ -82,7 +82,7 @@ function readConnecting(canvas) {
 }
 
 function originSocketPos(origin) {
-  return origin.node.getConnectionPos(origin.side === "input", origin.slot, [0, 0])
+  return socketPos(origin.node, origin.side === "input", origin.slot)
 }
 
 // Todos los sockets del lado buscado como candidatos planos para el motor.
@@ -99,7 +99,7 @@ function collectCandidates(graph, origin) {
     for (let slot = 0; slot < sockets.length; slot++) {
       const s = sockets[slot]
       if (!s) continue
-      const pos = node.getConnectionPos(isInput, slot, [0, 0])
+      const pos = socketPos(node, isInput, slot)
       // "Ocupado" no bloquea en ningún lado (una entrada admite reemplazo, una
       // salida abanica) — es sólo preferencia de orden: libre antes que usado,
       // tanto buscando entradas como buscando salidas hacia atrás.

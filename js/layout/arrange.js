@@ -69,7 +69,7 @@ function arrangeOne(snapshot, opts) {
   const byId = new Map(nodes.map(n => [n.id, n]))
 
   // Offset REAL de un socket desde el TOP del nodo (lo pasa el adaptador vía
-  // getConnectionPos). Fallback aproximado sólo para tests bajo node. Alinear socket
+  // socketPos, la posición pintada). Fallback aproximado sólo para tests bajo node. Alinear socket
   // con socket es lo que deja el cable recto — la idea del imán aplicada al colocar.
   const inOff = (node, slot) => node?.inOff?.[slot] ?? (30 + ((slot || 0) + 0.5) * 20)
   const outOff = (node, slot) => node?.outOff?.[slot] ?? (30 + ((slot || 0) + 0.5) * 20)

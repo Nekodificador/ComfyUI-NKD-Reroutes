@@ -105,6 +105,15 @@ function edgeTargets(nRect, neighbourIsCollapsed, opts, out) {
 // `link.parentId` apunta al ULTIMO reroute del enlace, y getReroutes() devuelve
 // la cadena ordenada desde la raiz, así que chain[0] es el primero (junto al
 // origen) y chain.at(-1) el último (junto al destino).
+// Dónde está PINTADO el socket. `getInputPos`/`getOutputPos` pasan por el
+// cálculo del propio frontend (el layout de Vue en Nodes 2.0, el de LiteGraph en
+// el clásico); `getConnectionPos` es sólo la fórmula clásica, y en Nodes 2.0 cae
+// entre 2 px y una fila entera fuera del punto. Es el plan B para frontends viejos.
+export function socketPos(node, isInput, slot) {
+  const p = isInput ? node.getInputPos?.(slot) : node.getOutputPos?.(slot)
+  return p ?? node.getConnectionPos(isInput, slot, [0, 0])
+}
+
 function wireNeighbour(graph, link, side, draggedItems) {
   const chain = graph.reroutes?.get?.(link.parentId)?.getReroutes?.() ?? []
   const reroute = side === "input" ? chain.at(-1) : chain[0]
@@ -117,8 +126,8 @@ function wireNeighbour(graph, link, side, draggedItems) {
     : graph.getNodeById?.(link.target_id)
   if (!node || draggedItems.has(node)) return null
   return side === "input"
-    ? node.getConnectionPos(false, link.origin_slot, [0, 0])
-    : node.getConnectionPos(true, link.target_slot, [0, 0])
+    ? socketPos(node, false, link.origin_slot)
+    : socketPos(node, true, link.target_slot)
 }
 
 // Regla 3: cuadrar cada socket del nodo arrastrado con su vecino en el cable,
@@ -144,7 +153,7 @@ function socketTargets(graph, draggedNodes, draggedItems, dragRect, out) {
       const link = input?.link != null ? getLink(input.link) : null
       if (!link) continue
       const anchor = wireNeighbour(graph, link, "input", draggedItems)
-      if (anchor) emit(node.getConnectionPos(true, slot, [0, 0])[1], anchor)
+      if (anchor) emit(socketPos(node, true, slot)[1], anchor)
     }
 
     for (const [slot, output] of (node.outputs || []).entries()) {
@@ -152,7 +161,7 @@ function socketTargets(graph, draggedNodes, draggedItems, dragRect, out) {
         const link = getLink(id)
         if (!link) continue
         const anchor = wireNeighbour(graph, link, "output", draggedItems)
-        if (anchor) emit(node.getConnectionPos(false, slot, [0, 0])[1], anchor)
+        if (anchor) emit(socketPos(node, false, slot)[1], anchor)
       }
     }
   }
@@ -193,7 +202,7 @@ function rerouteAnchors(graph, reroute) {
   } else {
     const link = reroute.firstLink
     const src = link && graph.getNodeById?.(link.origin_id)
-    if (src) pts.push(src.getConnectionPos(false, link.origin_slot, [0, 0]))
+    if (src) pts.push(socketPos(src, false, link.origin_slot))
   }
 
   for (const id of reroute.linkIds ?? []) {
@@ -206,7 +215,7 @@ function rerouteAnchors(graph, reroute) {
       pts.push([next.pos[0], next.pos[1]])
     } else {
       const dst = graph.getNodeById?.(link.target_id)
-      if (dst) pts.push(dst.getConnectionPos(true, link.target_slot, [0, 0]))
+      if (dst) pts.push(socketPos(dst, true, link.target_slot))
     }
   }
   return pts

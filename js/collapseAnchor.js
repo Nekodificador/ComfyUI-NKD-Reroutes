@@ -31,7 +31,10 @@ function anchorY(node) {
 // Se exporta aparte del parche para poder probarla sin navegador.
 export function wrapCollapse(orig, state) {
   return function (...args) {
-    if (!state.collapseKeepsWire) return orig.apply(this, args)
+    // En Nodes 2.0 no: escribir `pos` ahí mueve el modelo pero no el nodo de Vue
+    // (medido: el modelo bajaba 29 px y el nodo pintado se quedaba quieto), y el
+    // imán cuadraba los cables contra ese socket fantasma.
+    if (!state.collapseKeepsWire || globalThis.LiteGraph?.vueNodesMode) return orig.apply(this, args)
 
     const plegadoAntes = this.flags?.collapsed
     const yAntes = anchorY(this)

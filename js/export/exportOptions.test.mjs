@@ -20,6 +20,10 @@ assert.equal(sanitize({ dim: 150 }).dim, 90)   // el resto nunca tapa a la selec
 assert.equal(sanitize({ dim: -5 }).dim, 0)
 assert.equal(scaleFor(1000, 500, 2, 16383), 2)
 assert.equal(scaleFor(8000, 500, 2, 4000), 0.5)   // el lado largo manda
+// imagen pequeña (un subgraph suelto): se redibuja hasta 1280 de lado largo
+assert.equal(scaleFor(320, 256, 1, 16383), 4)
+assert.equal(scaleFor(2000, 1000, 1, 16383), 1)    // ya es grande: se queda
+assert.equal(scaleFor(320, 256, 1, 640), 2)        // el tope del usuario manda sobre el mínimo
 
 // ── PNG ── un PNG mínimo de 1×1 real, y el lector nativo copiado (frontend 1.59, getFromPngBuffer)
 function crc(b) { let c = ~0; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1 } return ~c >>> 0 }

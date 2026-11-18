@@ -48,5 +48,18 @@ export function sanitize(raw) {
   }
 }
 
-/** Escala de captura: la del monitor, salvo que el lado largo pase de maxSide. */
-export const scaleFor = (w, h, dpr, maxSide) => Math.min(dpr || 1, maxSide / w, maxSide / h)
+// Lado largo mínimo de la imagen. Discord pierde el workflow de las imágenes
+// pequeñas (un subgraph suelto, ~270×200, lo perdía; la misma exportada a
+// ~1070 px lo conservaba: probado). Discord no publica el límite: 1280 deja margen.
+export const MIN_SIDE = 1280
+
+/**
+ * Escala de captura: la del monitor; si la imagen saldría con el lado largo por
+ * debajo de MIN_SIDE, la que lo alcanza (se redibuja más grande, así que sale
+ * nítida); y nunca por encima de maxSide.
+ */
+export function scaleFor(w, h, dpr, maxSide) {
+  const long = Math.max(w, h)
+  const s = Math.max(dpr || 1, MIN_SIDE / long)
+  return Math.min(s, maxSide / w, maxSide / h)
+}

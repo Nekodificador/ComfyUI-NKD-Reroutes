@@ -13,6 +13,9 @@ import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { WORKFLOW_IMAGE_COMMANDS, workflowImageMenuItems } from "./export/workflowImage.js"
 import { computeTension } from "./spline/tension.js"
 import { computeArrange } from "./layout/arrange.js"
+import { matchSizeCommands, matchSizeMenuItems } from "./layout/matchSize.js"
+import { readabilityCommands, showReadability } from "./layout/readability.js"
+import { stackPair, connectorGeometry, weldPath } from "./stack/stackConnector.js"
 import { rectOf, socketPos } from "./magnet/snapTargets.js"
 import { beginFrame, emitRoute, routeFor } from "./route/pcb.js"
 import { DEFAULTS, PRESETS, PRESET_KEYS, SETTING_ID_MAP, NKD_ACCENT } from "./spline/config.js"
@@ -49,13 +52,16 @@ app.registerExtension({
       function: () => applyArrange(state),
     },
     ...WORKFLOW_IMAGE_COMMANDS,
+    ...matchSizeCommands(app),
+    ...readabilityCommands(app),
   ],
-  // Menú superior (Workflow → Workflow Image (WebP)) y clic derecho en el canvas:
+  // Menú superior (Workflow → Workflow Image (NKD)) y clic derecho en el canvas:
   // los dos existen igual en el clásico y en Nodes 2.0.
   menuCommands: [
-    { path: ["Workflow", "Workflow Image (WebP)"], commands: WORKFLOW_IMAGE_COMMANDS.map(c => c.id) },
+    { path: ["Workflow", "Workflow Image (NKD)"], commands: WORKFLOW_IMAGE_COMMANDS.map(c => c.id) },
   ],
-  getCanvasMenuItems: () => workflowImageMenuItems(),
+  getCanvasMenuItems: () => [...workflowImageMenuItems(), ...matchSizeMenuItems(app),
+    { content: "Check readability", callback: () => showReadability(app) }],
   // Shift+A está libre en ComfyUI (sólo existen 'a' y ctrl+a).
   // Alt+1..9 (plantillas) va por listener de teclado en installQuickTemplates,
   // no aquí: el keybinding declarativo alt+dígito no dispara en el frontend actual.
@@ -102,9 +108,11 @@ const SLIDER_DEFS = [
   { id: "MinHandle",                key: "minSplineOffset",      label: "Minimum Handle",           tip: "Hard floor for every handle. Too high and it swallows the curve: every wire ends up the same shape whatever its length.",                                                                                   min: 0,   max: 60,   step: 1    },
   { id: "CornerRadius",             key: "cornerRadius",         label: "PCB Corner Radius",        tip: "How rounded the right-angle corners are when PCB routing is on. 0 = sharp corners. Each corner is limited to half of its shortest side, so tight zig-zags stay clean instead of collapsing.", min: 0, max: 30, step: 1 },
   { id: "NodeAvoidance",            key: "nodeAvoidance",        label: "PCB Node Avoidance",       tip: "How hard a wire tries to go around a node instead of passing under it, when PCB routing is on. Each detour costs corners, so this is really a trade: at 1 the wire ignores nodes and runs straight through, high values make it wrap around whatever is in the way.", min: 1, max: 20, step: 1 },
+  { id: "StackMaxGap",              key: "stackMaxGap",          label: "Stack Gap",                tip: "Two nodes stacked one above the other with at most this much space between them are joined by a short bar-to-bar link through the gap, instead of a wire that leaves one side and comes back round to the other. Further apart, the wire is drawn as usual.", min: 0, max: 80, step: 2 },
   { id: "IgnoreShorterThan",        key: "ignoreShorterThan",    label: "PCB Ignore Short Nodes",   tip: "Nodes shorter than this stop pushing wires around, so Set/Get pills, collapsed nodes and other small helpers can sit anywhere without sending every wire on a detour. 0 = every node counts.", min: 0, max: 100, step: 5 },
   { id: "StubLength",               key: "stubLength",           label: "Socket Stub",              tip: "Length of the straight tail every wire leaves the socket with before the curve starts. 0 = none, straight from the dot. On short wires it shrinks with the wire so the curve between the two tails never folds over itself.", min: 0, max: 60, step: 1 },
   { id: "InversionPull",            key: "inversionPull",        label: "Inversion Pull",           tip: "How wide the 'C' loop is when a wire has to travel backwards (target node to the LEFT of the source). Stays the same no matter how far apart the nodes are.",                                 min: 10,  max: 150,  step: 5    },
+  { id: "RerouteTurn",              key: "rerouteTurn",          label: "Reroute U-turn",           tip: "How round the turn is when a wire doubles back at a reroute (for example, out of a node to the right and back to the left through the dot). 1 = a half circle. Lower = a tighter hairpin, higher = a wider swing.", min: 0.2, max: 2.0, step: 0.05 },
   { id: "NodeBodyClearance",        key: "nodeBodyClearance",    label: "Node Body Clearance",      tip: "Keeps a minimum amount of curve when two nodes sit almost on top of each other, so the wire doesn't vanish into the node's edge.",                                                           min: 0,   max: 80,   step: 2    },
   { id: "MagnetRadius", key: "magnetRadius", label: "Magnet Radius",         tip: "How close you have to drag a node before it snaps onto a neighbour.",              min: 5, max: 60,  step: 1 },
   { id: "MagnetGapY",   key: "magnetGapY",   label: "Magnet Vertical Gap",   tip: "Space left between nodes when one snaps below another in the same column.",        min: 0, max: 60,  step: 2 },
@@ -181,6 +189,22 @@ function registerSettings() {
     type:         "hidden",
     defaultValue: true,
     onChange(v)  { state.spreadCorridors = Boolean(v); redraw() },
+  })
+
+  // --- Hidden: conectores de pila, persistido desde el panel ---
+  add({
+    id:           "NKD Reroutes.StackConnectors",
+    name:         "Stack connectors (managed by sidebar)",
+    type:         "hidden",
+    defaultValue: true,
+    onChange(v)  { state.stackConnectors = Boolean(v); redraw() },
+  })
+  add({
+    id:           "NKD Reroutes.StackWeld",
+    name:         "Weld stacked nodes (managed by sidebar)",
+    type:         "hidden",
+    defaultValue: true,
+    onChange(v)  { state.stackWeld = Boolean(v); redraw() },
   })
 
   // --- Conectar desde lejos (Fase 1). Visible en Settings + toggle en el panel ---
@@ -570,11 +594,44 @@ function isRerouteEndpoint(dir, extras, link, side) {
 // el adaptador: resolver si cada extremo es un reroute —eso necesita el grafo
 // de ComfyUI— y pasarle el state vivo como configuración.
 
+// Hacia dónde recorre el cable un reroute, sacado de lo que ya calcula el
+// frontend: `Reroute.calculateAngle` deja en cada punto el ángulo de paso
+// (bisectriz entre la llegada y la media de las salidas) y lo pasa en extras:
+// el tramo que SALE del reroute trae `startControl = [d·cos, d·sin]` y el que
+// LLEGA trae `endControl = controlPoint = [-d·cos, -d·sin]`. Basta el signo del
+// coseno. Casi en vertical (|cos| pequeño) no se decide y queda como socket.
+const MIN_FACE_COS = 0.15
+function faceOf(control, sign) {
+  if (!control) return undefined
+  const len = Math.hypot(control[0], control[1])
+  if (!len || Math.abs(control[0]) / len < MIN_FACE_COS) return undefined
+  return Math.sign(control[0]) * sign
+}
+
+// Plan B: el ángulo nativo se calcula en el mismo pase de dibujo y puede llegar
+// a cero (primer frame, pestaña sin pintar, un `draw` forzado). Entonces se saca
+// de la cadena del propio cable: del punto anterior al siguiente.
+function flowFace(link, pos) {
+  const g = app.canvas?.graph
+  if (!g?.reroutes || !link || !pos) return undefined
+  const ids = []
+  for (let id = link.parentId; id != null && ids.length < 256; id = g.reroutes.get(id)?.parentId) ids.unshift(id)
+  const pts = ids.map(id => g.reroutes.get(id)?.pos)
+  const i = pts.findIndex(p => p && Math.abs(p[0] - pos[0]) < 1 && Math.abs(p[1] - pos[1]) < 1)
+  if (i < 0) return undefined
+  const prev = i > 0 ? pts[i - 1] : g.getNodeById?.(link.origin_id)?.getOutputPos?.(link.origin_slot)
+  const next = i < pts.length - 1 ? pts[i + 1] : g.getNodeById?.(link.target_id)?.getInputPos?.(link.target_slot)
+  if (!prev || !next) return undefined
+  return faceOf([next[0] - prev[0], next[1] - prev[1]], 1)
+}
+
 function computeSegmentTension(a, b, startDir, endDir, extras, link) {
+  const startIsReroute = isRerouteEndpoint(startDir, extras, link, "start")
+  const endIsReroute   = isRerouteEndpoint(endDir,   extras, link, "end")
   return computeTension(a, b, {
-    startDir, endDir, extras,
-    startIsReroute: isRerouteEndpoint(startDir, extras, link, "start"),
-    endIsReroute:   isRerouteEndpoint(endDir,   extras, link, "end"),
+    startDir, endDir, extras, startIsReroute, endIsReroute,
+    startFace: startIsReroute ? (faceOf(extras?.startControl, 1) ?? flowFace(link, a)) : undefined,
+    endFace:   endIsReroute   ? (faceOf(extras?.endControl,  -1) ?? flowFace(link, b)) : undefined,
   }, state)
 }
 
@@ -713,6 +770,12 @@ function patchRenderLink() {
   ) {
     if (!extras) extras = {}
 
+    // Un par de nodos apilados lo dibuja el conector de pila, más abajo en el
+    // renderizador de trazos: aquí ni tensión ni rabitos (0 = tramo de reroute).
+    if (start_dir !== 0 && end_dir !== 0 && stackFor(link)) {
+      return orig.call(this, ctx, a, b, link, skip_border, flow, color, start_dir, end_dir, extras)
+    }
+
     // En PCB la geometría la pone el ruteo, en el patch del renderizador de
     // trazos. Aquí no hay tensión que calcular ni rabito que pintar.
     if (this.links_render_mode === 2 && !state.pcbEnabled) {
@@ -805,13 +868,134 @@ function patchPathRenderer() {
   }, 200)
 }
 
+// ─── Conectores de pila ─────────────────────────────────────────────────────
+// Dos nodos uno encima del otro y casi pegados: en vez del cable, una marca en
+// cada borde enfrentado y un trazo corto por el hueco (js/stack/). Vale para
+// Bézier y PCB porque se decide aquí, en el renderizador de trazos, por el que
+// pasan los dos. Por encima de `stackMaxGap` se dibuja el cable de siempre.
+
+// En Nodes 2.0 el nodo que se ve puede medir más que su boundingRect (medido:
+// 120 px de alto contra 112 recién creado) y la marca va justo en el borde: con
+// el rect del modelo quedaba tapada. Allí el TAMAÑO sale del elemento, con
+// offsetWidth/Height —tamaño de maquetación, en unidades de grafo, igual a
+// cualquier zoom— y la POSICIÓN del modelo, que es la del canvas.
+// No se mide con getBoundingClientRect: depende del transform de la capa de
+// Vue, que al hacer zoom va un frame por detrás del canvas, y las marcas
+// temblaban.
+function visualRect(node) {
+  const br = node?.boundingRect
+  if (!br) return null
+  if (LiteGraph.vueNodesMode) {
+    const el = document.querySelector(`.lg-node[data-node-id="${node.id}"]`)
+    if (el?.offsetHeight) return [br[0], br[1], el.offsetWidth, el.offsetHeight]
+  }
+  return br
+}
+
+// Radio de la esquina de un nodo: el de la tarjeta de Vue (12 px en 1.59, de
+// la variable --node-radius) o el del canvas clásico.
+// La variable viene en rem (".75rem" en 1.59, medido), no en px.
+function nodeRadius() {
+  if (LiteGraph.vueNodesMode) {
+    const root = getComputedStyle(document.documentElement)
+    const raw = root.getPropertyValue("--node-radius").trim()
+    const v = parseFloat(raw)
+    if (v > 0) return raw.endsWith("rem") ? v * (parseFloat(root.fontSize) || 16) : v
+    return 12
+  }
+  return LiteGraph.ROUND_RADIUS ?? 8
+}
+
+// Conector para este cable, o null si no forma pila.
+function stackFor(link) {
+  if (!state.stackConnectors || !link) return null
+  const graph = app.canvas?.graph
+  const src = graph?.getNodeById?.(link.origin_id), dst = graph?.getNodeById?.(link.target_id)
+  if (!src || !dst || src === dst || src.flags?.collapsed || dst.flags?.collapsed) return null
+  const pair = stackPair(visualRect(src), visualRect(dst), state.stackMaxGap)
+  if (!pair) return null
+  // Varios cables entre el mismo par: uno al lado del otro, en orden de socket.
+  const getLink = (id) => graph.links?.get?.(id) ?? graph.links?.[id]
+  const hermanos = (src.outputs ?? []).flatMap(o => o.links ?? []).map(getLink)
+    .filter(l => l && l.target_id === link.target_id)
+    .sort((a, b) => a.origin_slot - b.origin_slot || a.target_slot - b.target_slot)
+  const i = Math.max(0, hermanos.findIndex(l => l.id === link.id))
+  const radius = nodeRadius()
+  const geo = connectorGeometry(pair, i, Math.max(1, hermanos.length), radius)
+  return { ...geo, index: i, weld: weldPath(pair, radius), pts: [[geo.line[0], geo.line[1]], [geo.line[2], geo.line[3]]] }
+}
+
+// Un cable con reroutes por medio no es un par de nodos pegados: sus tramos
+// tocan puntos, no bordes.
+const stackForSegment = (linkData) =>
+  linkData.startDirection === "none" || linkData.endDirection === "none" ||
+  linkData.id === "temp" || linkData.id === "dragging"
+    ? null
+    : stackFor(app.canvas?.graph?.links?.get?.(Number(linkData.id)))
+
+const MARK_THICK = 3   // grosor de la marca en su centro, en unidades de grafo (4 se veía grueso)
+
+const WELD_ALPHA = 0.55   // la soldadura tiñe, no tapa: el fondo de los nodos manda
+
+function drawStackMarks(ctx, stack, link, color) {
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.fillStyle = color
+  if (state.stackWeld) {
+    // Soldadura: un solo bloque por par (el primer cable lo pinta; con alfa,
+    // pintarlo una vez por cable lo iría oscureciendo).
+    if (stack.index === 0) {
+      ctx.globalAlpha *= WELD_ALPHA
+      // Sólo el hueco y las muescas de las esquinas (weldPath): nada debajo de
+      // los nodos, que en Bypassed son translúcidos y lo dejaban ver encima.
+      ctx.beginPath()
+      for (const [op, ...v] of stack.weld) {
+        if (op === "M") ctx.moveTo(v[0], v[1])
+        else if (op === "L") ctx.lineTo(v[0], v[1])
+        else ctx.arc(v[0], v[1], v[2], v[3], v[4], true)
+      }
+      ctx.closePath()
+      ctx.fill()
+      ctx.globalAlpha /= WELD_ALPHA
+    }
+  } else {
+    // Lente: plana sobre el borde del nodo y abombada hacia el hueco, gruesa en
+    // el centro y a cero en las puntas, que caen donde empieza la esquina. Con
+    // los dos controles a 4/3 del grosor, el punto medio de la Bézier llega
+    // justo al grosor pedido.
+    ctx.beginPath()
+    for (const { x0, x1, y, dir } of [stack.top, stack.bottom]) {
+      if (x1 <= x0) continue
+      const w = x1 - x0, h = MARK_THICK * (4 / 3) * dir
+      ctx.moveTo(x0, y)
+      ctx.bezierCurveTo(x0 + w * 0.25, y + h, x1 - w * 0.25, y + h, x1, y)
+      ctx.closePath()
+    }
+    ctx.fill()
+  }
+  // Los sockets del cable, rodeados con un aro fino: el cable ya no llega a
+  // ellos, y así se ve qué salida va con qué entrada. Con 7 px de radio y 2 de
+  // trazo se veían enormes.
+  ctx.lineWidth = 1.5
+  for (const p of [link.startPoint, link.endPoint]) {
+    if (!p) continue
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
 function applyPathRendererPatches(proto) {
   const origDraw = proto.drawLink
   proto.drawLink = function (ctx, linkData, context) {
     linkData.__nkdRoute = null
+    linkData.__nkdStack = stackForSegment(linkData)
+    if (linkData.__nkdStack) {
+      linkData.__nkdRoute = linkData.__nkdStack.pts
     // Los cables en vuelo (arrastrando desde un socket) se quedan como están:
     // sus extremos cambian cada frame y rutearlos es tirar el trabajo.
-    if (state.pcbEnabled && linkData.id !== "temp" && linkData.id !== "dragging") {
+    } else if (state.pcbEnabled && linkData.id !== "temp" && linkData.id !== "dragging") {
       const s = linkData.startPoint, e = linkData.endPoint
       // Aquí sólo llega el id, y los carriles necesitan saber en qué socket de
       // qué nodo empieza el cable — eso vive en el grafo.
@@ -832,10 +1016,14 @@ function applyPathRendererPatches(proto) {
   const origPath = proto.drawLinkPath
   proto.drawLinkPath = function (ctx, path, link, context, lineWidth, color) {
     if (!link.__nkdRoute) return origPath.call(this, ctx, path, link, context, lineWidth, color)
+    if (link.__nkdStack) drawStackMarks(ctx, link.__nkdStack, link, color)
     ctx.strokeStyle = color
     ctx.lineWidth   = lineWidth
     ctx.lineJoin    = "round"
-    emitRoute(path, link.__nkdRoute, state.cornerRadius)
+    emitRoute(path, link.__nkdRoute, link.__nkdStack ? 0 : state.cornerRadius)
+    // Soldados, la soldadura ya es la conexión: el trazo corto no se pinta, pero
+    // el Path2D se construye igual, que es lo que usa el clic sobre el cable.
+    if (link.__nkdStack && state.stackWeld) return
     ctx.stroke(path)
   }
 
@@ -1393,6 +1581,15 @@ function buildPanel(el) {
     "The curve controls below stop applying while it is on.", true)
   pcbRow.querySelector("input").addEventListener("change", () => buildPanel(el))
   secMode.appendChild(pcbRow)
+  // Vale para los dos renderizadores, así que va aquí y no en una de sus secciones.
+  secMode.appendChild(makeToggle("stackConnectors", "Stack connectors",
+    "Nodes stacked one above the other and almost touching are joined by a highlight on their facing " +
+    "edges and a short link through the gap, instead of a wire looping round from one side to the other. " +
+    "Only drawing changes: the workflow is the same.", true))
+  secMode.appendChild(makeToggle("stackWeld", "Weld stacked nodes",
+    "Instead of marks on the edges, fill the gap between the two stacked nodes with the wire's colour, " +
+    "so they read as one welded block.", true))
+  secMode.appendChild(makeSlider("stackMaxGap", "Stack gap", 0, 80, 2))
   wrap.appendChild(secMode)
 
   // — PCB (sólo cuando el ruteo manda; sus mandos no significan nada apagado) —
@@ -1627,6 +1824,7 @@ function buildPanel(el) {
   secBack.appendChild(invPullRow)
   secBack.appendChild(makeSlider("backwardStretch", "Backward stretch", 0, 1.0, 0.05))
   secBack.appendChild(makeSlider("crossingMargin",  "Crossing width",   0, 300, 10  ))
+  secBack.appendChild(makeSlider("rerouteTurn",     "Reroute U-turn",   0.2, 2.0, 0.05))
 
   function setInvPullEnabled(on) {
     invPullRow.classList.toggle("nkd-panel-disabled", !on)

@@ -11,6 +11,9 @@ export const DEFAULTS = Object.freeze({
   cornerRadius:             8,      // redondeo de las esquinas del ruteo, en px
   nodeAvoidance:            8,      // cuánto cuesta atravesar un nodo (1 = atravesar sale gratis)
   spreadCorridors:          true,   // separar cables sin relación que comparten pasillo
+  stackConnectors:          true,   // nodos apilados y casi pegados: marcas + trazo corto en vez de cable
+  stackMaxGap:              30,     // hueco máximo (px) entre dos nodos para unirlos como pila
+  stackWeld:                true,   // pila soldada: el hueco se rellena del color del cable en vez de marcas
   ignoreShorterThan:        40,     // los nodos más bajos que esto no estorban a los cables
   collapseKeepsWire:        true,   // al plegar un nodo, mantener su primer socket a la misma altura
   quickConnect:             false,  // soltar un cable en vacío ofrece sockets compatibles cercanos
@@ -36,6 +39,7 @@ export const DEFAULTS = Object.freeze({
   maxHandleRatio:           0.5,   // techo del handle como fracción del hueco horizontal (0 = sin techo)
   distFactor:               0.25,  // handle a 500 px como fracción de la distancia (0.25 = ley nativa)
   inversionPull:            40,
+  rerouteTurn:              1.0,   // tamaño de la C cuando el cable da media vuelta en un reroute (1 = semicírculo)
   stubLength:               0,     // tramo recto al salir del socket, en px (0 = sin rabito)
   invertBackward:           true,
   nodeBodyClearance:        24,
@@ -60,7 +64,7 @@ export const NKD_ACCENT = "#4ab4ff"
 // pcbEnabled no es geometría de la curva: es ELEGIR RENDERIZADOR. Si entrase en
 // los presets, cargar un estilo de cable te sacaría del modo PCB sin pedirlo.
 const NO_ES_GEOMETRIA = new Set([
-  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime", "heatmap", "comboNest", "comboPreviews", "comboFuzzy", "rerouteBus", "busLaneGap",
+  "rerouteRadius", "mode", "simpleRerouteOffset", "pcbEnabled", "cornerRadius", "nodeAvoidance", "spreadCorridors", "stackConnectors", "stackMaxGap", "stackWeld", "ignoreShorterThan", "collapseKeepsWire", "quickConnect", "nodeRuntime", "heatmap", "comboNest", "comboPreviews", "comboFuzzy", "rerouteBus", "busLaneGap",
   "magnetEnabled", "magnetRadius", "magnetGapX", "magnetGapY",
   "magnetGuides", "magnetMatchWidth", "magnetPush", "groupCornerRadius",
 ])
@@ -102,6 +106,9 @@ export const SETTING_ID_MAP = {
   "NKD Reroutes.CornerRadius":           "cornerRadius",
   "NKD Reroutes.NodeAvoidance":          "nodeAvoidance",
   "NKD Reroutes.SpreadCorridors":        "spreadCorridors",
+  "NKD Reroutes.StackConnectors":        "stackConnectors",
+  "NKD Reroutes.StackMaxGap":            "stackMaxGap",
+  "NKD Reroutes.StackWeld":              "stackWeld",
   "NKD Reroutes.IgnoreShorterThan":      "ignoreShorterThan",
   "NKD Reroutes.CollapseKeepsWire":      "collapseKeepsWire",
   "NKD Reroutes.QuickConnect":           "quickConnect",
@@ -124,6 +131,7 @@ export const SETTING_ID_MAP = {
   "NKD Reroutes.CrossingMargin":        "crossingMargin",
   "NKD Reroutes.BackwardStretch":       "backwardStretch",
   "NKD Reroutes.InversionPull":         "inversionPull",
+  "NKD Reroutes.RerouteTurn":           "rerouteTurn",
   "NKD Reroutes.StubLength":            "stubLength",
   "NKD Reroutes.InvertBackward":        "invertBackward",
   "NKD Reroutes.NodeBodyClearance":     "nodeBodyClearance",

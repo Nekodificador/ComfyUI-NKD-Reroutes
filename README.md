@@ -227,8 +227,8 @@ takes a few seconds, because the nodes are rendered from the page itself.
 
 The workflow survives wherever the original file is served, such as a file committed to a GitHub
 repo or attached to a release. Sites that re-compress images strip it. Small images are drawn at
-least 1280 px wide (or tall), because Discord drops the workflow from very small pictures, such as
-a single subgraph exported on its own.
+least 1280 px on the long side and padded to at least 960 px on the short side, because Discord
+drops the workflow from small pictures, such as a single subgraph exported on its own.
 
 ---
 

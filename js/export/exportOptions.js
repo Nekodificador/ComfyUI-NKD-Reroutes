@@ -52,6 +52,19 @@ export function sanitize(raw) {
 // pequeñas (un subgraph suelto, ~270×200, lo perdía; la misma exportada a
 // ~1070 px lo conservaba: probado). Discord no publica el límite: 1280 deja margen.
 export const MIN_SIDE = 1280
+// Y el lado corto: una de 1280×593 (un subgraph apaisado) también lo perdía,
+// mientras 1280×958 y ~1070×1000 lo conservaban (probado). Con 1280 y 960 se
+// cubre tanto un límite por lado corto como uno por píxeles totales (~1 MP).
+// El lado corto no se alcanza escalando —una imagen apaisada se dispararía— sino
+// con margen de fondo alrededor.
+export const MIN_SHORT = 960
+
+/** Lienzo final con el lado corto ≥ MIN_SHORT: [ancho, alto, dx, dy] para centrar la imagen. */
+export function padToMinShort(w, h) {
+  const W = w >= h ? w : Math.max(w, MIN_SHORT)
+  const H = w >= h ? Math.max(h, MIN_SHORT) : h
+  return [W, H, Math.round((W - w) / 2), Math.round((H - h) / 2)]
+}
 
 /**
  * Escala de captura: la del monitor; si la imagen saldría con el lado largo por

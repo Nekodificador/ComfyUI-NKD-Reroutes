@@ -1,6 +1,12 @@
 ﻿import assert from "node:assert/strict"
 import { deflateSync } from "node:zlib"
-import { DEFAULTS, sanitize, scaleFor, footerText } from "./exportOptions.js"
+import { DEFAULTS, sanitize, scaleFor, footerText, padToMinShort } from "./exportOptions.js"
+
+// lado corto mínimo, con margen centrado
+assert.deepEqual(padToMinShort(1280, 593), [1280, 960, 0, 184])   // el subgraph apaisado que Discord perdía
+assert.deepEqual(padToMinShort(1280, 958), [1280, 960, 0, 1])
+assert.deepEqual(padToMinShort(600, 1280), [960, 1280, 180, 0])   // vertical: margen a los lados
+assert.deepEqual(padToMinShort(3000, 2000), [3000, 2000, 0, 0])   // ya grande: nada
 import { embedPngWorkflow } from "./pngWorkflow.js"
 
 // ── opciones ──

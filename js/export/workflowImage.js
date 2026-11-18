@@ -10,7 +10,7 @@
 import { app } from "../../../scripts/app.js"
 import { embedWorkflow } from "./webpWorkflow.js"
 import { embedPngWorkflow } from "./pngWorkflow.js"
-import { DEFAULTS, sanitize, scaleFor as fitScale, footerText } from "./exportOptions.js"
+import { DEFAULTS, sanitize, scaleFor as fitScale, footerText, padToMinShort } from "./exportOptions.js"
 import { openExportDialog } from "./exportDialog.js"
 import { selectionWorkflow } from "./selectionWorkflow.js"
 
@@ -335,7 +335,30 @@ async function renderOnce(opts, scale) {
   } else {
     out = await renderAt(bounds, opts)
   }
+  // Lado corto mínimo (Discord pierde el workflow de las imágenes pequeñas), con
+  // margen de fondo. Sólo en la exportación: la miniatura no lo necesita.
+  if (out && scale == null) out = padShort(out, opts)
   if (out && opts.brand) out = await withFooter(out, opts, out.width / (bounds[2] - bounds[0]))
+  return out
+}
+
+// Color de fondo de la imagen tal como se ve: con el tema, el píxel de la
+// esquina (`clear_background_color` no es el que se ve: sale más oscuro).
+function backgroundOf(src, opts) {
+  if (opts.background === "solid") return opts.color
+  if (opts.background !== "ui") return null
+  const d = src.getContext("2d").getImageData(1, src.height - 2, 1, 1).data
+  return "#" + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, "0")).join("")
+}
+
+function padShort(src, opts) {
+  const [W, H, dx, dy] = padToMinShort(src.width, src.height)
+  if (W === src.width && H === src.height) return src
+  const out = Object.assign(document.createElement("canvas"), { width: W, height: H })
+  const ctx = out.getContext("2d")
+  const bg = backgroundOf(src, opts)
+  if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H) }
+  ctx.drawImage(src, dx, dy)
   return out
 }
 
@@ -362,13 +385,7 @@ async function withFooter(src, opts, k) {
   const out = Object.assign(document.createElement("canvas"), { width: src.width, height: src.height + h })
   const ctx = out.getContext("2d")
   ctx.drawImage(src, 0, 0)
-  // Con el fondo del tema, el color de la esquina de la propia imagen: el
-  // `clear_background_color` del canvas no es el que se ve (sale más oscuro).
-  const corner = () => {
-    const d = src.getContext("2d").getImageData(1, src.height - 2, 1, 1).data
-    return "#" + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, "0")).join("")
-  }
-  const bg = opts.background === "solid" ? opts.color : opts.background === "ui" ? corner() : null
+  const bg = backgroundOf(src, opts)
   if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, src.height, out.width, h) }
   let x = FOOTER_PAD * k
   const mid = src.height + h / 2

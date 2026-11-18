@@ -1,14 +1,23 @@
 ﻿import assert from "node:assert/strict"
 import { deflateSync } from "node:zlib"
-import { DEFAULTS, sanitize, scaleFor } from "./exportOptions.js"
+import { DEFAULTS, sanitize, scaleFor, footerText } from "./exportOptions.js"
 import { embedPngWorkflow } from "./pngWorkflow.js"
 
 // ── opciones ──
 assert.deepEqual(sanitize(null), { ...DEFAULTS })
 assert.deepEqual(sanitize({ format: "gif", embed: "yes", background: "x", color: "red", padding: -9, maxSide: 99999 }),
   { ...DEFAULTS, padding: 0 })
-assert.deepEqual(sanitize({ format: "png", embed: false, background: "solid", color: "#AbCdEf", padding: "120", maxSide: 4000 }),
-  { format: "png", embed: false, background: "solid", color: "#AbCdEf", padding: 120, maxSide: 4000 })
+assert.deepEqual(sanitize({ format: "png", embed: false, background: "solid", color: "#AbCdEf", padding: "120", maxSide: 4000, dim: 35 }),
+  { ...DEFAULTS, format: "png", embed: false, background: "solid", color: "#AbCdEf", padding: 120, maxSide: 4000, dim: 35 })
+// branding
+assert.equal(footerText("{title} · nkd.dev · {date}", { title: "Klein", date: new Date("2026-11-18T10:00:00Z") }), "Klein · nkd.dev · 2026-11-18")
+assert.equal(footerText("", { title: "x" }), "")
+assert.equal(sanitize({ brandLogo: "javascript:alert(1)" }).brandLogo, "")               // sólo data:image/…
+assert.equal(sanitize({ brandLogo: "data:image/png;base64,AAAA" }).brandLogo, "data:image/png;base64,AAAA")
+assert.equal(sanitize({ brandLogo: "data:image/png;base64," + "A".repeat(2_000_000) }).brandLogo, "")  // demasiado grande
+assert.equal(sanitize({ brandText: "x".repeat(500) }).brandText.length, 200)
+assert.equal(sanitize({ dim: 150 }).dim, 90)   // el resto nunca tapa a la selección
+assert.equal(sanitize({ dim: -5 }).dim, 0)
 assert.equal(scaleFor(1000, 500, 2, 16383), 2)
 assert.equal(scaleFor(8000, 500, 2, 4000), 0.5)   // el lado largo manda
 

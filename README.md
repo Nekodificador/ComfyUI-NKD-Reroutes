@@ -140,13 +140,10 @@ snaps that edge against the neighbours too. Each kind only snaps to its own: nod
 groups to groups. Groups can be resized from any of their four corners, not just the bottom-right
 one, and the opposite side stays put.
 
-Two more tidy-up tools live in the canvas right-click menu and the command palette:
-
-- **Match size**, with two or more nodes selected: match width or match height. Every node takes
-  the size of the largest one, never shrinking below what its widgets need.
-- **Check readability** lists what makes the workflow hard to read, without moving anything:
-  overlapping nodes, wires that run backwards, a node sitting under one that grows when it runs,
-  and wires hidden behind a node. Click an entry to jump to it.
+**Check readability**, in the canvas right-click menu and the command palette, lists what makes
+the workflow hard to read without moving anything: overlapping nodes, wires that run backwards, a
+node sitting under one that grows when it runs, and wires hidden behind a node. Click an entry to
+jump to it.
 
 Nodes with **Pin** enabled neither move nor act as references. Dragging a multi-selection
 snaps the bounding box and moves everything together. Releasing Shift mid-drag backs out.
@@ -218,6 +215,11 @@ right-clicking the canvas. **Export…** opens a dialog with a live preview:
 - **Only selection** appears when nodes are selected. The image shows just those nodes, and the
   embedded workflow holds just them. Select a subgraph node and you get it on its own with its
   widgets; dropping the image onto ComfyUI brings the subgraph back, ready to use.
+- **Footer**: adds a strip under the image with your logo and a line of text, so a picture you
+  post carries your branding without covering any node. The text can use `{title}` (the workflow
+  name) and `{date}`. The logo and text are remembered; Reset keeps them.
+- **Show the rest** (with Only selection): keeps the rest of the workflow in the picture, faded to
+  the opacity you pick, so the selection stands out in context. At 0 it is left out.
 
 The dialog remembers what you used last; **Export with last settings** skips it. Works with the
 classic canvas and with Nodes 2.0, and each one is exported with its own look. A Nodes 2.0 export

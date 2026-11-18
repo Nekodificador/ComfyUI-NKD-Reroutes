@@ -66,10 +66,32 @@ export function openExportDialog({ initial, defaults, selectionCount = 0, render
   // Sólo la selección: la imagen y el workflow de dentro son sólo esos nodos
   // (un subgraph seleccionado sale aislado, con sus widgets).
   const onlySel = h("input", { type: "checkbox", checked: !!opts.onlySelection, onchange: (e) => set("onlySelection", e.target.checked) })
+  // Con la selección: el resto del workflow a esta opacidad (0 = no se ve).
+  const dim = h("input", { type: "range", min: 0, max: 90, step: 5, value: opts.dim ?? 0, style: "flex:1",
+    oninput: (e) => set("dim", Number(e.target.value)) })
+  const dimLabel = h("small", { style: "opacity:.6;min-width:3em" })
   const background = seg("background", [["ui", "Theme"], ["transparent", "Transparent"], ["solid", "Solid"]])
   const color = h("input", { type: "color", value: opts.color, oninput: (e) => set("color", e.target.value) })
   const padding = num("padding", 0, 500, 10)
   const maxSide = num("maxSide", 256, 16383, 256)
+
+  // Branding: pie con logo y texto en una franja aparte bajo la imagen.
+  const brand = h("input", { type: "checkbox", checked: !!opts.brand, onchange: (e) => set("brand", e.target.checked) })
+  const brandText = h("input", { type: "text", value: opts.brandText ?? "", placeholder: "{title} · your name or site · {date}",
+    style: "flex:1;background:var(--comfy-input-bg,#111);color:inherit;border:1px solid var(--border-color,#444);border-radius:5px;padding:4px 6px",
+    oninput: (e) => set("brandText", e.target.value) })
+  const logoImg = h("img", { alt: "", style: "height:24px;max-width:96px;object-fit:contain" })
+  const logoPick = h("input", { type: "file", accept: "image/png,image/jpeg,image/webp,image/svg+xml", style: "display:none",
+    onchange: (e) => {
+      const f = e.target.files?.[0]
+      if (!f) return
+      const r = new FileReader()
+      r.onload = () => set("brandLogo", String(r.result))
+      r.readAsDataURL(f)
+    } })
+  const btn = "background:var(--comfy-input-bg,#111);color:inherit;border:1px solid var(--border-color,#444);border-radius:5px;padding:4px 10px;cursor:pointer"
+  const logoBtn = h("button", { type: "button", textContent: "Choose logo…", style: btn, onclick: () => logoPick.click() })
+  const logoClear = h("button", { type: "button", textContent: "✕", title: "Remove logo", style: btn, onclick: () => set("brandLogo", "") })
 
   const row = (label, ...kids) => h("div", { className: "row" }, h("label", { textContent: label }), ...kids)
   const go = h("button", { type: "button", className: "btn go", textContent: "Export" })
@@ -80,10 +102,14 @@ export function openExportDialog({ initial, defaults, selectionCount = 0, render
     h("h3", { textContent: "Export workflow image" }),
     thumb,
     selectionCount ? row("Only selection", onlySel, h("small", { textContent: `${selectionCount} selected node${selectionCount > 1 ? "s" : ""}`, style: "opacity:.6" })) : null,
+    selectionCount ? row("Show the rest", dim, dimLabel) : null,
     row("Format", format),
     row("Embed workflow", embed),
     row("Background", background, color),
     row("Padding (px)", padding),
+    row("Footer", brand, h("small", { textContent: "logo and text under the image", style: "opacity:.6" })),
+    row("Footer text", brandText),
+    row("Logo", logoImg, logoBtn, logoClear, logoPick),
     h("details", {}, h("summary", { textContent: "Advanced" }),
       row("Max long edge (px)", maxSide, h("small", { textContent: "larger images are scaled down", style: "opacity:.6" }))),
     h("div", { className: "foot" }, reset, cancel, go))
@@ -92,7 +118,15 @@ export function openExportDialog({ initial, defaults, selectionCount = 0, render
   function sync() {
     color.style.visibility = opts.background === "solid" ? "visible" : "hidden"
     embed.checked = opts.embed
+    brand.checked = !!opts.brand
+    brandText.disabled = logoBtn.disabled = logoClear.disabled = !opts.brand
+    if (document.activeElement !== brandText) brandText.value = opts.brandText ?? ""
+    if (opts.brandLogo) logoImg.src = opts.brandLogo; else logoImg.removeAttribute("src")
+    logoClear.style.visibility = opts.brandLogo ? "visible" : "hidden"
     onlySel.checked = !!opts.onlySelection
+    dim.value = opts.dim ?? 0
+    dim.disabled = !opts.onlySelection
+    dimLabel.textContent = opts.dim ? `${opts.dim} %` : "hidden"
     color.value = opts.color
     padding.value = opts.padding
     maxSide.value = opts.maxSide
@@ -101,9 +135,13 @@ export function openExportDialog({ initial, defaults, selectionCount = 0, render
   function set(key, value) {
     opts = { ...opts, [key]: value }
     sync()
-    if (key === "background" || key === "color" || key === "padding" || key === "onlySelection") queueThumb()
+    if (key === "background" || key === "color" || key === "padding" || key === "onlySelection" || key === "dim" || key.startsWith("brand")) queueThumb()
   }
-  reset.onclick = () => { opts = { ...defaults, onlySelection: opts.onlySelection }; sync(); queueThumb() }
+  // El logo y el texto del pie se conservan: son tuyos, no un ajuste de la exportación.
+  reset.onclick = () => {
+    opts = { ...defaults, onlySelection: opts.onlySelection, brandLogo: opts.brandLogo, brandText: opts.brandText }
+    sync(); queueThumb()
+  }
 
   // Miniatura con el renderizador de verdad (lo que ves es lo que sale), a
   // escala reducida y sin cada pulsación: en Nodes 2.0 rasterizar tarda.

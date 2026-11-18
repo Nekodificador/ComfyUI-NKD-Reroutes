@@ -10,7 +10,7 @@
 import { app } from "../../../scripts/app.js"
 import { embedWorkflow } from "./webpWorkflow.js"
 import { embedPngWorkflow } from "./pngWorkflow.js"
-import { DEFAULTS, sanitize, scaleFor as fitScale } from "./exportOptions.js"
+import { DEFAULTS, sanitize, scaleFor as fitScale, footerText } from "./exportOptions.js"
 import { openExportDialog } from "./exportDialog.js"
 import { selectionWorkflow } from "./selectionWorkflow.js"
 
@@ -318,6 +318,83 @@ async function renderOnce(opts, scale) {
   const bounds = graphBounds(app.canvas.graph, opts.padding, opts.only)
   if (!bounds) return null
   if (scale != null) opts = { ...opts, scale: Math.min(scale(bounds[2] - bounds[0], bounds[3] - bounds[1]), 1) }
+  // Selección con el resto atenuado: recortada a la selección, en tres capas —
+  // el fondo solo, todo el workflow sin fondo a la opacidad pedida, y la
+  // selección sin fondo encima, entera—. Así no hay que tocar cómo se pinta cada
+  // nodo, y vale igual para el canvas clásico que para Nodes 2.0.
+  let out
+  if (opts.only && opts.dim > 0) {
+    out = await renderAt(bounds, { ...opts, only: new Set() })
+    const todo = await renderAt(bounds, { ...opts, only: undefined, background: "transparent" })
+    const sel  = await renderAt(bounds, { ...opts, background: "transparent" })
+    const ctx = out.getContext("2d")
+    ctx.globalAlpha = opts.dim / 100
+    ctx.drawImage(todo, 0, 0, out.width, out.height)
+    ctx.globalAlpha = 1
+    ctx.drawImage(sel, 0, 0, out.width, out.height)
+  } else {
+    out = await renderAt(bounds, opts)
+  }
+  if (out && opts.brand) out = await withFooter(out, opts, out.width / (bounds[2] - bounds[0]))
+  return out
+}
+
+// ── Branding ────────────────────────────────────────────────────────────────
+// Pie en una franja APARTE bajo la imagen: no tapa ningún nodo. Logo a la
+// izquierda y el texto a continuación ({title}, {date}). La franja lleva el
+// mismo fondo que la imagen. `k` = píxeles de imagen por unidad de grafo.
+const FOOTER_H = 56, LOGO_H = 32, FOOTER_PAD = 20
+
+function loadImage(src) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)   // un logo roto no tumba la exportación
+    img.src = src
+  })
+}
+
+async function withFooter(src, opts, k) {
+  const text = footerText(opts.brandText, { title: app.extensionManager?.workflow?.activeWorkflow?.filename ?? "" })
+  const logo = opts.brandLogo ? await loadImage(opts.brandLogo) : null
+  if (!text && !logo) return src
+  const h = Math.round(FOOTER_H * k)
+  const out = Object.assign(document.createElement("canvas"), { width: src.width, height: src.height + h })
+  const ctx = out.getContext("2d")
+  ctx.drawImage(src, 0, 0)
+  // Con el fondo del tema, el color de la esquina de la propia imagen: el
+  // `clear_background_color` del canvas no es el que se ve (sale más oscuro).
+  const corner = () => {
+    const d = src.getContext("2d").getImageData(1, src.height - 2, 1, 1).data
+    return "#" + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, "0")).join("")
+  }
+  const bg = opts.background === "solid" ? opts.color : opts.background === "ui" ? corner() : null
+  if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, src.height, out.width, h) }
+  let x = FOOTER_PAD * k
+  const mid = src.height + h / 2
+  if (logo) {
+    const lh = LOGO_H * k, lw = lh * (logo.naturalWidth / logo.naturalHeight || 1)
+    ctx.drawImage(logo, x, mid - lh / 2, lw, lh)
+    x += lw + 12 * k
+  }
+  if (text) {
+    ctx.font = `${Math.round(14 * k)}px Inter, Arial, sans-serif`
+    ctx.textBaseline = "middle"
+    // Texto claro sobre fondo oscuro y al revés; sin fondo (transparente), claro.
+    ctx.fillStyle = bg && luminance(bg) > 0.5 ? "#222" : "#ddd"
+    ctx.fillText(text, x, mid)
+  }
+  return out
+}
+
+function luminance(color) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(color)
+  if (!m) return 0
+  const [r, g, b] = m.slice(1).map(v => parseInt(v, 16) / 255)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+async function renderAt(bounds, opts) {
   if (LiteGraph.vueNodesMode) {
     try {
       const shot = await renderVue(bounds, opts)

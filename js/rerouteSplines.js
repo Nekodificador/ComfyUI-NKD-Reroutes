@@ -13,7 +13,6 @@ import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { WORKFLOW_IMAGE_COMMANDS, workflowImageMenuItems } from "./export/workflowImage.js"
 import { computeTension } from "./spline/tension.js"
 import { computeArrange } from "./layout/arrange.js"
-import { matchSizeCommands, matchSizeMenuItems } from "./layout/matchSize.js"
 import { readabilityCommands, showReadability } from "./layout/readability.js"
 import { stackPair, connectorGeometry, weldPath } from "./stack/stackConnector.js"
 import { rectOf, socketPos } from "./magnet/snapTargets.js"
@@ -52,7 +51,6 @@ app.registerExtension({
       function: () => applyArrange(state),
     },
     ...WORKFLOW_IMAGE_COMMANDS,
-    ...matchSizeCommands(app),
     ...readabilityCommands(app),
   ],
   // Menú superior (Workflow → Workflow Image (NKD)) y clic derecho en el canvas:
@@ -60,7 +58,7 @@ app.registerExtension({
   menuCommands: [
     { path: ["Workflow", "Workflow Image (NKD)"], commands: WORKFLOW_IMAGE_COMMANDS.map(c => c.id) },
   ],
-  getCanvasMenuItems: () => [...workflowImageMenuItems(), ...matchSizeMenuItems(app),
+  getCanvasMenuItems: () => [...workflowImageMenuItems(),
     { content: "Check readability", callback: () => showReadability(app) }],
   // Shift+A está libre en ComfyUI (sólo existen 'a' y ctrl+a).
   // Alt+1..9 (plantillas) va por listener de teclado en installQuickTemplates,
@@ -475,7 +473,7 @@ function applyArrange(state) {
 
     // 4) Snapshot con los tamaños YA rescalados, para que el layout cuadre.
     const nodes = workNodes.map(n => {
-      const r = rectOf(n)
+      const r = arrangeRect(n)
       // Offset REAL de cada socket respecto al top del nodo (intrínseco a la geometría,
       // no depende de dónde esté). Con esto el motor alinea a socket de forma exacta,
       // incluso en colapsados / Nodes 2.0 / nodos con widgets, sin constantes.
@@ -510,6 +508,29 @@ function applyArrange(state) {
     graph.afterChange()
   }
   canvas?.setDirty?.(true, true)
+}
+
+// Tamaño con el que el auto-arrange coloca un nodo.
+//  · Nodes 2.0: el nodo que se ve puede ser más alto que el del modelo (medido
+//    120 contra 112) y los nodos quedaban solapados. Se toma el mayor de los dos,
+//    con offsetWidth/Height del elemento (no dependen del zoom).
+//  · Un nodo que enseña la imagen al ejecutar (Preview/Save) y aún no tiene
+//    ninguna mide como si no fuera a crecer, y se le pegaba el de debajo. Su alto
+//    real depende de la proporción de la imagen, imposible de saber antes: se le
+//    reserva un cuadrado del ancho del nodo, con el mismo tope que el rescalado.
+const SHOWS_IMAGE = /Preview|Save/i
+function arrangeRect(node) {
+  const r = rectOf(node)
+  if (!r) return r
+  let { w, h } = r
+  if (LiteGraph.vueNodesMode) {
+    const el = document.querySelector(`.lg-node[data-node-id="${node.id}"]`)
+    if (el?.offsetHeight) { w = Math.max(w, el.offsetWidth); h = Math.max(h, el.offsetHeight) }
+  }
+  if (!node.flags?.collapsed && SHOWS_IMAGE.test(node.type ?? "") && !node.imgs?.length) {
+    h = Math.max(h, Math.min(ARRANGE_MAX_H, h + w))
+  }
+  return { ...r, w, h }
 }
 
 // Un nodo de preview/save enorme puede ocupar toda la altura del grafo. Se topa a

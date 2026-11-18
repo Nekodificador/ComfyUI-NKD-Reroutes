@@ -14,7 +14,20 @@ export const DEFAULTS = Object.freeze({
   color: "#202020",        // para "solid"
   padding: 50,
   maxSide: MAX_SIDE,       // lado largo máximo; si se pasa, se reduce
+  dim: 0,                  // con «sólo la selección»: opacidad (%) del resto; 0 = no se ve
+  brand: false,            // pie con logo y texto, en una franja aparte bajo la imagen
+  brandText: "{title}",    // admite {title} y {date}
+  brandLogo: "",           // data:image/… elegido por el usuario
 })
+
+const MAX_LOGO = 1_500_000   // ~1 MB de imagen: cabe en localStorage con holgura
+
+/** Texto del pie con {title} y {date} sustituidos. */
+export function footerText(template, { title = "", date = new Date() } = {}) {
+  const d = date instanceof Date ? date : new Date(date)
+  const iso = Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10)
+  return String(template ?? "").replaceAll("{title}", title).replaceAll("{date}", iso).trim()
+}
 
 const clampInt = (v, lo, hi, d) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, Math.round(+v))) : d
 
@@ -27,6 +40,11 @@ export function sanitize(raw) {
     color: /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : DEFAULTS.color,
     padding: clampInt(o.padding, 0, 500, DEFAULTS.padding),
     maxSide: clampInt(o.maxSide, 256, MAX_SIDE, DEFAULTS.maxSide),
+    dim: clampInt(o.dim, 0, 90, DEFAULTS.dim),
+    brand: typeof o.brand === "boolean" ? o.brand : DEFAULTS.brand,
+    brandText: typeof o.brandText === "string" ? o.brandText.slice(0, 200) : DEFAULTS.brandText,
+    brandLogo: typeof o.brandLogo === "string" && /^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(o.brandLogo) &&
+      o.brandLogo.length <= MAX_LOGO ? o.brandLogo : "",
   }
 }
 

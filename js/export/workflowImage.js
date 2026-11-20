@@ -317,7 +317,10 @@ export function renderWorkflow(opts) {
 async function renderOnce(opts, scale) {
   const bounds = graphBounds(app.canvas.graph, opts.padding, opts.only)
   if (!bounds) return null
-  if (scale != null) opts = { ...opts, scale: Math.min(scale(bounds[2] - bounds[0], bounds[3] - bounds[1]), 1) }
+  // `scale`: una función (la miniatura del diálogo, encaja en su hueco) o un
+  // número fijo (las capturas para documentación, a ×2).
+  if (typeof scale === "function") opts = { ...opts, scale: Math.min(scale(bounds[2] - bounds[0], bounds[3] - bounds[1]), 1) }
+  else if (typeof scale === "number") opts = { ...opts, scale }
   // Selección con el resto atenuado: recortada a la selección, en tres capas —
   // el fondo solo, todo el workflow sin fondo a la opacidad pedida, y la
   // selección sin fondo encima, entera—. Así no hay que tocar cómo se pinta cada
@@ -336,8 +339,9 @@ async function renderOnce(opts, scale) {
     out = await renderAt(bounds, opts)
   }
   // Lado corto mínimo (Discord pierde el workflow de las imágenes pequeñas), con
-  // margen de fondo. Sólo en la exportación: la miniatura no lo necesita.
-  if (out && scale == null) out = padShort(out, opts)
+  // margen de fondo. Sólo si la imagen lleva el workflow dentro, que es lo único
+  // que se pierde; ni la miniatura ni una captura para documentación lo necesitan.
+  if (out && scale == null && opts.embed) out = padShort(out, opts)
   if (out && opts.brand) out = await withFooter(out, opts, out.width / (bounds[2] - bounds[0]))
   return out
 }

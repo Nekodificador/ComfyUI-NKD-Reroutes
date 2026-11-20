@@ -11,6 +11,7 @@ import { installSavePreview, wrapNodeMenu } from "./combos/savePreview.js"
 import { installCollapseAnchor } from "./collapseAnchor.js"
 import { installShrinkOnLegacy } from "./shrinkOnLegacy.js"
 import { WORKFLOW_IMAGE_COMMANDS, workflowImageMenuItems } from "./export/workflowImage.js"
+import "./export/docShots.js"   // window.NKDReroutes: capturas para la documentación de un pack
 import { computeTension } from "./spline/tension.js"
 import { computeArrange } from "./layout/arrange.js"
 import { readabilityCommands, showReadability } from "./layout/readability.js"

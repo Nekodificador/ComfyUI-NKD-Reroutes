@@ -187,6 +187,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.QuickConnect",
     name:         "Quick-connect (Ctrl+drag)",
+    category:     ["NKD", "Reroutes", "Quick-connect (Ctrl+drag)"],
     tooltip:      "Hold Ctrl while dragging a wire from a socket: a list of nearby compatible sockets pops up next to it — release on one to connect. Works on the classic canvas and Nodes 2.0.",
     type:         "boolean",
     defaultValue: DEFAULTS.quickConnect,
@@ -197,6 +198,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.RerouteBus",
     name:         "Reroute bus (Ctrl+Alt+drag)",
+    category:     ["NKD", "Reroutes", "Reroute bus (Ctrl+Alt+drag)"],
     tooltip:      "Hold Ctrl+Alt and drag a line across wires on empty canvas: the wires you cut are gathered into a bus, a bar they run through side by side. Cut across a bar to take one wire out. Without NKD Reroutes the bus is a column of normal reroutes, so the workflow works anywhere.",
     type:         "boolean",
     defaultValue: DEFAULTS.rerouteBus,
@@ -207,6 +209,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.NodeRuntime",
     name:         "Show node runtime",
+    category:     ["NKD", "Reroutes", "Show node runtime"],
     tooltip:      "After a run, each node shows a badge with how long it took to execute. Works on the classic canvas and Nodes 2.0.",
     type:         "boolean",
     defaultValue: DEFAULTS.nodeRuntime,
@@ -217,6 +220,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.Heatmap",
     name:         "Runtime heatmap",
+    category:     ["NKD", "Reroutes", "Runtime heatmap"],
     tooltip:      "Colours each node's runtime badge by relative cost: dark blue = fast, orange = slow (relative to the slowest node this run). Colourblind-safe. Run a workflow first.",
     type:         "boolean",
     defaultValue: DEFAULTS.heatmap,
@@ -227,6 +231,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.ComboNest",
     name:         "Group dropdowns into folders",
+    category:     ["NKD", "Reroutes", "Group dropdowns into folders"],
     tooltip:      "Long dropdowns with '/' in their names (checkpoints, LoRAs, RES4LYF samplers) are grouped into collapsible folders, and typing in the filter searches recursively across every subfolder. Works on the classic canvas and Nodes 2.0.",
     type:         "boolean",
     defaultValue: DEFAULTS.comboNest,
@@ -237,6 +242,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.ComboPreviews",
     name:         "Show model previews",
+    category:     ["NKD", "Reroutes", "Show model previews"],
     tooltip:      "Classic canvas only: hovering a checkpoint/LoRA/model in a dropdown shows its preview thumbnail (from the model's sidecar image or embedded cover). Nodes 2.0 shows previews in its Model Library sidebar.",
     type:         "boolean",
     defaultValue: DEFAULTS.comboPreviews,
@@ -247,6 +253,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.ComboFuzzy",
     name:         "Fuzzy search in dropdowns",
+    category:     ["NKD", "Reroutes", "Fuzzy search in dropdowns"],
     tooltip:      "Classic canvas only: the dropdown filter matches several words in any order — every word must appear ('neko krea' needs both 'neko' and 'krea'), unlike the core's single literal match. Nodes 2.0 keeps its native filter.",
     type:         "boolean",
     defaultValue: DEFAULTS.comboFuzzy,
@@ -281,6 +288,7 @@ function registerSettings() {
   add({
     id:           "NKD Reroutes.Preset",
     name:         "Wire Style Preset",
+    category:     ["NKD", "Reroutes", "Wire Style Preset"],
     tooltip:      "Sets every wire setting at once. Pick one as a starting point, then fine-tune with the sliders below.",
     type:         "combo",
     // Incluye los guardados por el usuario. Los que se creen después salen al
@@ -294,9 +302,11 @@ function registerSettings() {
     add({
       id:           `NKD Reroutes.${s.id}`,
       name:         s.label,
+      category:     ["NKD", "Reroutes", s.label],
       tooltip:      s.tip,
       type:         "slider",
-      attrs:        { min: s.min, max: s.max, step: s.step },
+      // Comfy draws setting sliders 5rem wide (w-20): too short to dial in. Extra attrs reach the slider.
+      attrs:        { min: s.min, max: s.max, step: s.step, style: "width:12rem" },
       defaultValue: DEFAULTS[s.key],
       onChange(v) { state[s.key] = Number(v); redraw() },
     })

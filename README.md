@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/18210fcb-15b7-4476-8a25-f4862efe3186
 
 1. Clone or copy this folder into your `ComfyUI/custom_nodes/` directory.
 2. Restart ComfyUI.
-3. Open the **NKD Wires** sidebar tab, or **Settings → NKD Reroutes**.
+3. Open the **NKD Wires** sidebar tab, or **Settings → NKD → Reroutes**.
 
 Works with the classic canvas and with **Nodes 2.0**.
 

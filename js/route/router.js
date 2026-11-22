@@ -7,10 +7,21 @@
 // fallos. Los comentarios originales se dejan como están; documentan casos
 // medidos que no se ven en el código.
 //
-// ÚNICO cambio sobre el original: BEND_COST y BLOCKED_MULT eran constantes y
-// ahora se pueden pasar por parámetro, con el mismo valor por defecto. Son las
-// dos mitades de una sola decisión —cuánto rodeo merece la pena antes de
-// atravesar un nodo— y el usuario querrá moverla.
+// Cambios sobre el original (tres, y sólo de entrada; la geometría no se toca):
+//  1. BEND_COST y BLOCKED_MULT eran constantes y ahora se pueden pasar por
+//     parámetro, con el mismo valor por defecto. Son las dos mitades de una sola
+//     decisión —cuánto rodeo merece la pena antes de atravesar un nodo— y el
+//     usuario querrá moverla.
+//  2. `lanes` ({xs, ys}): carriles extra que el llamante añade a la rejilla. Los
+//     carriles salen de los bordes INFLADOS, así que en un hueco más estrecho que
+//     dos holguras (nodos apilados a 18 px) no cae ninguno fuera de los nodos y
+//     el cable o atravesaba el de arriba o daba la vuelta entera por encima
+//     (medido). El adaptador pasa el centro de esos huecos. Sólo se usan los que
+//     caen dentro del marco de la búsqueda, para no engordar la rejilla.
+//  3. `solid` (rects [x, y, w, h]): nodos que nunca salen baratos de cruzar, se
+//     ponga como se ponga blockedMult — cruzarlos cuesta al menos BLOCKED_MULT. El
+//     adaptador pasa los nodos de los dos extremos del cable: con esquivar = 1 un
+//     cable que vuelve hacia atrás atravesaba su PROPIO nodo de salida (medido).
 //
 // MIT License — Copyright (c) 2026 Vedran Aberle Tokić
 //
@@ -47,7 +58,7 @@ const DIR = {
   none: [1, 0]
 }
 
-export function route({ start, end, startDir = 'right', endDir = 'left', obstacles, clearance = 16, stubStart = 24, stubEnd = 24, enforceStart = false, enforceEnd = false, bendCost = BEND_COST, blockedMult = BLOCKED_MULT }) {
+export function route({ start, end, startDir = 'right', endDir = 'left', obstacles, clearance = 16, stubStart = 24, stubEnd = 24, enforceStart = false, enforceEnd = false, bendCost = BEND_COST, blockedMult = BLOCKED_MULT, lanes = null, solid = null }) {
   // Reroute ends (core passes CENTER -> 'none') are resolved by the registry to the
   // upstream's side before this call; the mapping here is only a fallback.
   const sv = DIR[startDir === 'none' ? 'right' : startDir] ?? DIR.right
@@ -91,12 +102,15 @@ export function route({ start, end, startDir = 'right', endDir = 'left', obstacl
   const xs = [sStub[0], eStub[0]]
   const ys = [sStub[1], eStub[1]]
   for (const [x0, y0, x1, y1] of rects) { xs.push(x0, x1); ys.push(y0, y1) }
+  for (const x of lanes?.xs ?? []) if (x > bb[0] && x < bb[2]) xs.push(x)
+  for (const y of lanes?.ys ?? []) if (y > bb[1] && y < bb[3]) ys.push(y)
   const X = dedupe(xs), Y = dedupe(ys)
 
   const si = [idx(X, sStub[0]), idx(Y, sStub[1])]
   const ei = [idx(X, eStub[0]), idx(Y, eStub[1])]
 
-  const path = astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd, bendCost, blockedMult)
+  const solidHard = (solid ?? []).map(r => [r[0] - 4, r[1] - 4, r[0] + r[2] + 4, r[1] + r[3] + 4])
+  const path = astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd, bendCost, blockedMult, solidHard)
   if (!path) return null
 
   // Waypoints: real endpoints, stubs, grid path. Collinear runs collapsed.
@@ -135,7 +149,7 @@ function clearV(x, ya, yb, rects) {
   return true
 }
 
-function astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd, bendCost, blockedMult) {
+function astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd, bendCost, blockedMult, solidHard = []) {
   const W = X.length, H = Y.length
   const id = (i, j) => j * W + i
   // State carries entry axis (0 h, 1 v, -1 start) for the bend penalty.
@@ -187,6 +201,10 @@ function astar(X, Y, si, ei, rects, hard, sv, ev, enforceStart, enforceEnd, bend
       if (!free) {
         const overNode = nax === 0 ? !clearH(Y[j], X[i], X[ni], hard) : !clearV(X[i], Y[j], Y[nj], hard)
         mult = overNode ? blockedMult : SOFT_MULT
+        if (overNode && solidHard.length) {
+          const overSolid = nax === 0 ? !clearH(Y[j], X[i], X[ni], solidHard) : !clearV(X[i], Y[j], Y[nj], solidHard)
+          if (overSolid) mult = Math.max(blockedMult, BLOCKED_MULT)
+        }
       }
       // Vertical travel carries an epsilon surcharge so equal-cost bend placements
       // resolve identically for every link (horizontal-first). Without it, sibling

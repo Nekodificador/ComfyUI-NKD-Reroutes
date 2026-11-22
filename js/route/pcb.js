@@ -30,8 +30,67 @@ const CACHE_MAX = 4096
 // uso normal; está para que un nodo con decenas de cables no pare el canvas.
 const SEARCH_BUDGET = 24
 
+// ── Carriles por el centro de los huecos estrechos ─────────────────────────
+// Los carriles del router son los bordes INFLADOS de los nodos. Entre dos nodos
+// apilados a menos de dos holguras (los 18 px de una columna de LoRAs) esos
+// bordes caen dentro del vecino, así que por el hueco no pasa ningún carril y el
+// cable o atravesaba el nodo de arriba o daba la vuelta entera por encima de la
+// columna (medido). Se da un carril por el centro de cada hueco así: vertical
+// entre nodos uno encima de otro, horizontal entre nodos uno al lado de otro.
+// Se recalcula sólo cuando cambian los obstáculos.
+export function gapLanes(rects, clearance = CLEARANCE) {
+  const xs = [], ys = []
+  for (let i = 0; i < rects.length; i++) {
+    const [ax, ay, aw, ah] = rects[i]
+    for (let j = i + 1; j < rects.length; j++) {
+      const [bx, by, bw, bh] = rects[j]
+      const overlapX = Math.min(ax + aw, bx + bw) - Math.max(ax, bx)
+      const overlapY = Math.min(ay + ah, by + bh) - Math.max(ay, by)
+      if (overlapX > 0) {
+        const gap = ay < by ? by - (ay + ah) : ay - (by + bh)
+        if (gap > 0 && gap < 2 * clearance) ys.push(ay < by ? ay + ah + gap / 2 : by + bh + gap / 2)
+      }
+      if (overlapY > 0) {
+        const gap = ax < bx ? bx - (ax + aw) : ax - (bx + bw)
+        if (gap > 0 && gap < 2 * clearance) xs.push(ax < bx ? ax + aw + gap / 2 : bx + bw + gap / 2)
+      }
+    }
+  }
+  return { xs, ys }
+}
+
+// ── Nodos apilados ─────────────────────────────────────────────────────────
+// Con esquivar = 1 cruzar un nodo cuesta lo mismo que rodearlo, y un cable entre
+// dos nodos de una columna (un LoRA al de debajo) atraviesa el de arriba porque
+// tiene menos codos. Es el único caso en que ese valor estorba (para todo lo
+// demás se elige a propósito): para un cable entre dos nodos uno encima de
+// otro se esquiva al menos con STACK_AVOID, y con el carril del hueco baja por él.
+const STACK_AVOID = 2
+export function apilados(ra, rb) {
+  if (!ra || !rb) return false
+  const overlapX = Math.min(ra[0] + ra[2], rb[0] + rb[2]) - Math.max(ra[0], rb[0])
+  const separadosY = ra[1] + ra[3] <= rb[1] || rb[1] + rb[3] <= ra[1]
+  return overlapX > 0 && separadosY
+}
+const rectDe = (node) => node?.boundingRect ?? (node?.pos && node?.size ? [node.pos[0], node.pos[1], node.size[0], node.size[1]] : null)
+function esquivarPara(graph, link) {
+  if (!graph || !link) return avoidance
+  const ap = apilados(rectDe(graph.getNodeById?.(link.origin_id)), rectDe(graph.getNodeById?.(link.target_id)))
+  return ap ? Math.max(avoidance, STACK_AVOID) : avoidance
+}
+
+// Rectángulos de los nodos en los extremos de este tramo (no de un reroute).
+function extremosSolidos(graph, link, startIsReroute, endIsReroute) {
+  if (!graph || !link) return null
+  const out = []
+  if (!startIsReroute) { const r = rectDe(graph.getNodeById?.(link.origin_id)); if (r) out.push(r) }
+  if (!endIsReroute)   { const r = rectDe(graph.getNodeById?.(link.target_id)); if (r) out.push(r) }
+  return out
+}
+
 const cache = new Map()
 let obstacles = []
+let lanes = { xs: [], ys: [] }
 let version = 0         // sube cada vez que cambia la disposición de los nodos
 let lastHash = ""
 let searchesThisFrame = 0
@@ -121,6 +180,7 @@ export function beginFrame(graph, cfg = {}) {
   if (hash !== lastHash) {
     lastHash = hash
     obstacles = rects
+    lanes = gapLanes(rects)
     version++
     if (cache.size > CACHE_MAX) { cache.clear(); pins.clear() }
   }
@@ -439,8 +499,13 @@ export function routeFor(id, a, b, opts = {}) {
       end:   [b[0], b[1]],
       startDir, endDir,
       obstacles,
-      clearance: CLEARANCE,
-      blockedMult: avoidance,
+      clearance: CLEARANCE, lanes,
+      // Sólo en tramos nodo→nodo: con un reroute por medio el par de nodos del
+      // cable no describe este tramo.
+      blockedMult: !startIsReroute && !endIsReroute ? esquivarPara(graph, link) : avoidance,
+      // Los nodos de los extremos nunca salen baratos de cruzar: con esquivar = 1
+      // un cable que vuelve hacia atrás atravesaba su propio nodo de salida.
+      solid: extremosSolidos(graph, link, startIsReroute, endIsReroute),
       stubStart,
       stubEnd,
       // La cara elegida para una pastilla es VINCULANTE, no decorativa.
@@ -524,7 +589,8 @@ function rawRoute(graph, ll) {
   const t = clearStub(e.b[0] - laneStub(graph, destino, true,  ll.target_slot), -1, e.a[1], e.b[1], e.a[0])
   return route({
     start: e.a, end: e.b, startDir: "right", endDir: "left",
-    obstacles, clearance: CLEARANCE, blockedMult: avoidance,
+    obstacles, clearance: CLEARANCE, lanes, blockedMult: esquivarPara(graph, ll),
+    solid: extremosSolidos(graph, ll, false, false),
     stubStart: Math.abs(s - e.a[0]),
     stubEnd:   Math.abs(t - e.b[0]),
   })

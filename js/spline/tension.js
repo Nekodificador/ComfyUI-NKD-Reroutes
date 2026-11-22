@@ -8,9 +8,13 @@
  * @param {[number,number]} a  extremo de salida, en coordenadas de grafo
  * @param {[number,number]} b  extremo de llegada
  * @param {{startDir?:number, endDir?:number, extras?:object,
- *          startIsReroute:boolean, endIsReroute:boolean}} ctx
+ *          startIsReroute:boolean, endIsReroute:boolean,
+ *          startFace?:number, endFace?:number}} ctx
  *        Los flags de reroute entran ya resueltos: averiguarlos necesita el
  *        grafo de ComfyUI y eso es trabajo del adaptador, no de la geometría.
+ *        `startFace`/`endFace` (±1, sólo en extremos de reroute): hacia dónde
+ *        RECORRE el cable ese reroute, +1 = hacia la derecha. Sin ellos un
+ *        reroute se trata como un socket (sale a la derecha, entra por la izquierda).
  * @param {object} cfg  cualquier objeto con las claves de DEFAULTS
  * @returns {{startControl:[number,number], endControl:[number,number],
  *            startPoint:[number,number], endPoint:[number,number]}}
@@ -30,7 +34,7 @@
 const MAX_STUB_FRACTION = 0.4
 
 export function computeTension(a, b, ctx, cfg) {
-  const { startDir, endDir, extras, startIsReroute, endIsReroute } = ctx
+  const { startDir, endDir, extras, startIsReroute, endIsReroute, startFace, endFace } = ctx
 
   // --- Cara de cada socket ---
   // Sube aquí porque decide dos cosas: hacia dónde apunta el handle y hacia
@@ -44,6 +48,18 @@ export function computeTension(a, b, ctx, cfg) {
 
   if (extras?.endControl)        endSignX = extras.endControl[0] > 0 ? 1 : -1
   else if (endDir === 4)         endSignX = 1    // RIGHT
+
+  // --- Sentido de recorrido en los reroutes ---
+  // Un reroute es un punto de PASO: el cable lo cruza en el sentido en que va,
+  // no siempre de izquierda a derecha como un socket. Cuando el cable vuelve
+  // hacia la izquierda, el reroute "mira" a la izquierda y la curva entra por
+  // su lado derecho y sale por el izquierdo, en un trazo continuo. Como
+  // socket fijo hacía un pico en el punto: entraba por un lado y salía por el
+  // contrario. Lo decide el adaptador, que es quien ve la cadena entera.
+  const faced = (startIsReroute && (startFace === 1 || startFace === -1)) ||
+                (endIsReroute   && (endFace   === 1 || endFace   === -1))
+  if (startIsReroute && (startFace === 1 || startFace === -1)) startSignX = startFace
+  if (endIsReroute   && (endFace   === 1 || endFace   === -1)) endSignX   = -endFace
 
   // --- Rabito recto ---
   // El cable sale del socket en horizontal durante stubLength px y la Bézier
@@ -62,8 +78,32 @@ export function computeTension(a, b, ctx, cfg) {
   const startPoint = [a[0] + stubStart * startSignX, a[1]]
   const endPoint   = [b[0] + stubEnd   * endSignX,   b[1]]
 
-  const dx = endPoint[0] - startPoint[0]
   const dy = endPoint[1] - startPoint[1]
+
+  // Con un reroute orientado, los dos extremos pueden mirar al MISMO lado:
+  // el cable sale hacia un lado y tiene que volver a entrar desde ese mismo
+  // lado. Eso no es un cable hacia delante ni hacia atrás, es una media vuelta,
+  // y sale como una C: los dos handles hacia ese lado, hasta pasar del extremo
+  // que más sobresale, y de largo 2/3 del alto (la Bézier de una semicircunferencia)
+  // por `rerouteTurn`: 1 = semicírculo, menos = vuelta más cerrada, más = más abierta.
+  if (faced && startSignX === endSignX) {
+    const s = startSignX
+    const o = Math.max(cfg.minSplineOffset, Math.abs(dy) * (2 / 3) * (cfg.rerouteTurn ?? 1))
+    const reachStart = Math.max(0, (endPoint[0] - startPoint[0]) * s)
+    const reachEnd   = Math.max(0, (startPoint[0] - endPoint[0]) * s)
+    return {
+      startControl: [s * (o + reachStart), 0],
+      endControl:   [s * (o + reachEnd),   0],
+      startPoint,
+      endPoint,
+    }
+  }
+
+  // Mirando en sentidos opuestos, todo lo de abajo vale tal cual en un espejo:
+  // "hacia delante" es hacia donde mira la salida. Sin reroutes orientados la
+  // salida mira a la derecha y esto no cambia nada.
+  const mirror = faced ? startSignX : 1
+  const dx = (endPoint[0] - startPoint[0]) * mirror
   const absDx = Math.abs(dx)
   const wireDist = Math.sqrt(dx * dx + dy * dy)
   // 0→1 smoothstep ramp for scaling floors on short connections.

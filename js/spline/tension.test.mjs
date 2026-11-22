@@ -324,3 +324,46 @@ test("los presets sólo tocan geometría", () => {
     }
   }
 })
+
+// ── Sentido de recorrido en los reroutes ──
+// El adaptador dice hacia dónde recorre el cable cada reroute (startFace/endFace).
+const faced = (a, b, ctx) => computeTension(a, b, { extras: {}, ...ctx }, { ...DEFAULTS })
+
+test("reroute que mira a la derecha (o sin cara) = socket de siempre", () => {
+  const base = faced([0, 0], [400, 100], { startIsReroute: true, endIsReroute: true })
+  const right = faced([0, 0], [400, 100], { startIsReroute: true, endIsReroute: true, startFace: 1, endFace: 1 })
+  assert.deepEqual(right, base)
+})
+
+test("dos reroutes que van hacia la izquierda: el mismo cable, en espejo", () => {
+  const fwd  = faced([0, 0], [400, 100], { startIsReroute: true, endIsReroute: true })
+  const back = faced([400, 0], [0, 100], { startIsReroute: true, endIsReroute: true, startFace: -1, endFace: -1 })
+  assert.deepEqual(back.startControl.map(r6), [-fwd.startControl[0], fwd.startControl[1]].map(r6))
+  assert.deepEqual(back.endControl.map(r6),   [-fwd.endControl[0],   fwd.endControl[1]].map(r6))
+})
+
+test("socket a la derecha → reroute que vuelve a la izquierda: una C hacia la derecha", () => {
+  // La salida de un nodo, y debajo-derecha un reroute desde el que el cable vuelve.
+  const out = faced([0, 0], [40, 150], { startIsReroute: false, endIsReroute: true, endFace: -1 })
+  assert.ok(out.startControl[0] > 0 && out.endControl[0] > 0, "los dos handles hacia la derecha")
+  assert.equal(out.startControl[1], 0); assert.equal(out.endControl[1], 0)
+  // los dos puntos de control en la misma columna, pasado el extremo que más sobresale
+  const p1 = out.startPoint[0] + out.startControl[0], p2 = out.endPoint[0] + out.endControl[0]
+  assert.equal(r6(p1), r6(p2))
+  assert.ok(p1 > 40)
+  // más alta la C, más ancha
+  const tall = faced([0, 0], [40, 400], { startIsReroute: false, endIsReroute: true, endFace: -1 })
+  assert.ok(tall.endControl[0] > out.endControl[0])
+})
+
+test("rerouteTurn abre o cierra la media vuelta, y sólo la media vuelta", () => {
+  const ctx = { startIsReroute: false, endIsReroute: true, endFace: -1 }
+  const at = (k) => computeTension([0, 0], [40, 300], { extras: {}, ...ctx }, { ...DEFAULTS, rerouteTurn: k })
+  // 1 = semicírculo: 2/3 del alto
+  assert.equal(r6(at(1).endControl[0]), 200)
+  assert.equal(r6(at(2).endControl[0]), 400)
+  assert.equal(r6(at(0.5).endControl[0]), 100)
+  // un cable normal no lo nota
+  const plain = (k) => computeTension([0, 0], [400, 100], { extras: {}, startIsReroute: false, endIsReroute: false }, { ...DEFAULTS, rerouteTurn: k })
+  assert.deepEqual(plain(2), plain(1))
+})

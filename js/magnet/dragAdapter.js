@@ -1,6 +1,7 @@
 import { app } from "../../../scripts/app.js"
 import { computeSnap } from "./computeSnap.js"
 import { computePush } from "./computePush.js"
+import { activeGroupResize, installGroupResize } from "./groupResize.js"
 import { collectResizeTargets, collectSnapTargets, expandDragged, isGroup, isReroute, rectOf, unionRect } from "./snapTargets.js"
 
 // Estado del arrastre en curso. El índice de candidatos se construye una sola
@@ -247,6 +248,7 @@ export function installMagnet(state) {
   installDragListener(state)   // renderizador clásico
   installFrameHook(state)      // Nodes 2.0
   installGuideRenderer(state)
+  installGroupResize(app)      // grupos por NW/NE/SW
 }
 
 // Durante el arrastre el imán NO mueve nada: sólo calcula, para que la silueta y
@@ -496,6 +498,9 @@ function detectVueResizeHandle(ev) {
 // —la dirección la deja litegraph en el puntero—; un grupo, sólo por la inferior
 // derecha.
 function resizingItem(canvas) {
+  // Un grupo estirado por NW/NE/SW lo lleva groupResize.js, no el nativo.
+  const corner = activeGroupResize()
+  if (corner) return corner
   const node = canvas.resizing_node
   if (node) return { item: node, dir: canvas.pointer?.resizeDirection || "SE" }
   const group = canvas.resizingGroup

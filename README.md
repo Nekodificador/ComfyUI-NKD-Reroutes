@@ -58,6 +58,20 @@ dot size, not the mode, not the magnet.
 | Inversion pull | 10 – 150 px | 40 | How wide that C loop is, regardless of distance. |
 | Backward stretch | 0 – 1.0 | 0.25 | How much the backward loop grows with distance. |
 | Crossing width | 0 – 300 px | 120 | How much travel the forward-to-backward transition is spread over. Small values make the loop pop in abruptly. |
+| Reroute U-turn | 0.2 – 2.0 | 1.0 | How round the turn is when a wire doubles back at a reroute dot. 1 is a half circle; lower is a tighter hairpin, higher a wider swing. |
+
+**Stack connectors.** Two nodes stacked one above the other and almost touching, like a column
+of LoRA loaders, are no longer joined by a wire that leaves one side and loops round to the other.
+By default the gap between them is filled with the wire's colour, so the pair reads as one welded
+block. Turn off **Weld stacked nodes** to get a highlight on each facing edge and a short link
+through the gap instead. The two sockets get a thin ring so you can still see which output feeds
+which input. It works with curved wires and with PCB routing, and only the drawing changes. Turn
+it all off with **Stack connectors** in the sidebar; **Stack gap** (0 to 80 px, default 30) sets how
+close the nodes have to be.
+
+A reroute dot is a waypoint, not a socket: the wire crosses it in the direction it is travelling.
+When the path heads back to the left, the dot faces left too, so the wire turns around in one
+smooth curve instead of making a sharp point at the dot.
 
 ### Reroute dot
 
@@ -123,7 +137,13 @@ win over aligning an edge. Ties inside a tier go to whichever is nearest.
 
 Groups play by the same rules among themselves, and resizing a group or a node from its corner
 snaps that edge against the neighbours too. Each kind only snaps to its own: nodes to nodes,
-groups to groups.
+groups to groups. Groups can be resized from any of their four corners, not just the bottom-right
+one, and the opposite side stays put.
+
+**Check readability**, in the canvas right-click menu and the command palette, lists what makes
+the workflow hard to read without moving anything: overlapping nodes, wires that run backwards, a
+node sitting under one that grows when it runs, and wires hidden behind a node. Click an entry to
+jump to it.
 
 Nodes with **Pin** enabled neither move nor act as references. Dragging a multi-selection
 snaps the bounding box and moves everything together. Releasing Shift mid-drag backs out.
@@ -180,17 +200,35 @@ height, which removes the empty band the Vue layout leaves behind.
 
 ## Workflow image
 
-Export the whole workflow as a **WebP** screenshot with the workflow embedded: drop the file onto
-any ComfyUI (no extension needed) and the graph loads. WebP is roughly half the size of the PNG
-equivalent, so it is light enough for a README or a web page.
+Export the whole workflow as an image with the workflow embedded: drop the file onto any ComfyUI
+(no extension needed) and the graph loads.
 
-Find it in **Workflow → Workflow Image (WebP)** in the top menu, in the command palette, or by
-right-clicking the canvas. Works with the classic canvas and with Nodes 2.0, and each one is
-exported with its own look. There is also a variant without the embedded workflow. A Nodes 2.0
-export takes a few seconds, because the nodes are rendered from the page itself.
+Find it in **Workflow → Workflow Image (NKD)** in the top menu, in the command palette, or by
+right-clicking the canvas. **Export…** opens a dialog with a live preview:
+
+- **Format**: WebP (roughly half the size of PNG, light enough for a README or a web page) or PNG,
+  for sites that don't take WebP. The workflow is embedded in both.
+- **Embed workflow**: on or off.
+- **Background**: the theme's (with the grid), transparent, or a solid colour.
+- **Padding** around the workflow, and under *Advanced* a **max long edge**: bigger workflows are
+  scaled down to fit.
+- **Only selection** appears when nodes are selected. The image shows just those nodes, and the
+  embedded workflow holds just them. Select a subgraph node and you get it on its own with its
+  widgets; dropping the image onto ComfyUI brings the subgraph back, ready to use.
+- **Footer**: adds a strip under the image with your logo and a line of text, so a picture you
+  post carries your branding without covering any node. The text can use `{title}` (the workflow
+  name) and `{date}`. The logo and text are remembered; Reset keeps them.
+- **Show the rest** (with Only selection): keeps the rest of the workflow in the picture, faded to
+  the opacity you pick, so the selection stands out in context. At 0 it is left out.
+
+The dialog remembers what you used last; **Export with last settings** skips it. Works with the
+classic canvas and with Nodes 2.0, and each one is exported with its own look. A Nodes 2.0 export
+takes a few seconds, because the nodes are rendered from the page itself.
 
 The workflow survives wherever the original file is served, such as a file committed to a GitHub
-repo or attached to a release. Sites that re-compress images strip it.
+repo or attached to a release. Sites that re-compress images strip it. Small images are drawn at
+least 1280 px on the long side and padded to at least 960 px on the short side, because Discord
+drops the workflow from small pictures, such as a single subgraph exported on its own.
 
 ---
 

@@ -234,3 +234,35 @@ test("Nodos pinned y aislados se dejan en su sitio", () => {
   assert.ok(!nodeMoves.has(3), "aislado no se mueve")
   assert.ok(nodeMoves.has(2), "el conectado sí se coloca")
 })
+
+// Imagen 2→3 de Neko: sampler → VAE Decode.samples recto; el Load VAE (sólo vae) debajo.
+const decodeCase = () => {
+  const sampler = node({ id: 1, type: "KSampler", inputs: SAMPLER_INPUTS, h: 200 })
+  sampler.outOff = [40]
+  const vae = node({ id: 2, type: "VAELoader", h: 80 })
+  vae.outOff = [50]
+  const decode = node({ id: 3, type: "VAEDecode", inputs: inp("samples", "vae"), h: 90 })
+  decode.inOff = [40, 60]
+  const save = node({ id: 4, type: "SaveImage", inputs: inp("images") })
+  const edges = [
+    { from: 1, to: 3, toSlot: 0, fromSlot: 0 },
+    { from: 2, to: 3, toSlot: 1, fromSlot: 0 },
+    { from: 3, to: 4, toSlot: 0, fromSlot: 0 },
+  ]
+  return { nodes: [sampler, vae, decode, save], edges }
+}
+
+test("Decode: la espina sampler→decode va recta y el Load VAE se aparta debajo", () => {
+  const m = computeArrange(decodeCase(), OPTS).nodeMoves
+  assert.equal(yOf(m, 1) + 40, yOf(m, 3) + 40)          // output del sampler = samples
+  assert.equal(xOf(m, 2), xOf(m, 1))                    // misma columna
+  assert.ok(yOf(m, 2) >= yOf(m, 1) + 200)               // Load VAE bajo el sampler
+})
+
+test("PCB: el hueco entre columnas cabe los rabitos (con carriles); sin PCB no cambia", () => {
+  const sin = computeArrange(decodeCase(), OPTS).nodeMoves
+  const con = computeArrange(decodeCase(), { ...OPTS, pcb: { stub: 24, pitch: 5 } }).nodeMoves
+  // sampler (w 200) → decode: rabito de salida 24 + decode con 2 entradas 24+5 + margen 8 = 61
+  assert.equal(xOf(sin, 3) - xOf(sin, 1) - 200, 36)
+  assert.equal(xOf(con, 3) - xOf(con, 1) - 200, 61)
+})

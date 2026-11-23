@@ -248,12 +248,29 @@ function arrangeOne(snapshot, opts) {
     getPadForCol.set(cr, Math.max(getPadForCol.get(cr) || 0, (n.w || 120) + 28))
   }
 
+  // Con el ruteo PCB, cada cable sale y entra con un rabito recto y los de un mismo
+  // lado escalonan carriles (laneStub en pcb.js): el hueco entre columnas tiene que
+  // caber el rabito de salida más hondo de la izquierda + el de entrada más hondo de
+  // la derecha. Sin eso las puntas se cruzan y el cable se dobla sobre sí mismo.
+  // Sólo depende de la topología → sigue siendo idempotente.
+  const pcb = opts?.pcb
+  const stubNeed = (n, isInput) => {
+    const slots = new Set((isInput ? incoming : outgoing).get(n.id)?.map(e => isInput ? e.toSlot : e.fromSlot))
+    return slots.size ? pcb.stub + (slots.size - 1) * pcb.pitch : 0
+  }
+  const gapAfter = (r, next) => {
+    if (!pcb || next === undefined) return gapX
+    const left = main.filter(n => rankOf(n) === r), right = main.filter(n => rankOf(n) === next)
+    const need = Math.max(0, ...left.map(n => stubNeed(n, false))) + Math.max(0, ...right.map(n => stubNeed(n, true)))
+    return Math.max(gapX, need + (pcb.margin ?? 8))
+  }
+
   const colX = new Map()
   let x = anchorX
-  for (const r of ranks) {
+  for (const [i, r] of ranks.entries()) {
     x += getPadForCol.get(r) || 0
     colX.set(r, x)
-    x += Math.max(...main.filter(n => rankOf(n) === r).map(n => n.w || 200)) + gapX
+    x += Math.max(...main.filter(n => rankOf(n) === r).map(n => n.w || 200)) + gapAfter(r, ranks[i + 1])
   }
 
   const placedY = new Map()   // CENTRO Y de cada nodo colocado
@@ -272,6 +289,13 @@ function arrangeOne(snapshot, opts) {
   // así un cono profundo (p.ej. la generación de prompt del conditioning) se extiende
   // a la IZQUIERDA en columnas, sin empujar el sampler hacia abajo. Dentro de una
   // columna, orden por pipeline+socket y hueco pipeGap entre pipelines distintos.
+  // Espina: los samplers y todo lo que cuelga de ellos (decode, save…). Es el
+  // pipeline principal: en una columna va antes que un loader que sólo alimenta un
+  // input secundario (Load VAE → vae del decode), que se aparta debajo en vez de
+  // empujar al sampler y torcer el cable sampler→decode.
+  const spine = new Set()
+  const sq = [...samplers]
+  while (sq.length) { const id = sq.shift(); if (spine.has(id)) continue; spine.add(id); for (const e of outgoing.get(id) || []) sq.push(e.to) }
   const pipeGap = Math.max(60, clusterGap * 2)
   const bandOffset = Math.max(200, clusterGap * 6)
   const PIPE_ORDER = { model: 0, cond: 1, config: 2, latent: 3 }
@@ -293,7 +317,7 @@ function arrangeOne(snapshot, opts) {
     // con su objetivo alineado; los previews laterales (menor maxReach) ceden y se
     // apilan alrededor. A igual profundidad, orden de banda/socket. Así el output final
     // manda y un preview lateral no desalinea la cadena principal.
-    list.sort((a, b) => (maxReach.get(b.id) ?? 0) - (maxReach.get(a.id) ?? 0) || orderOf(a) - orderOf(b) || targetOf(a) - targetOf(b))
+    list.sort((a, b) => (maxReach.get(b.id) ?? 0) - (maxReach.get(a.id) ?? 0) || (spine.has(b.id) - spine.has(a.id)) || orderOf(a) - orderOf(b) || targetOf(a) - targetOf(b))
     let prev = null
     for (const n of list) {
       let top = targetOf(n) - (n.h || 80) / 2

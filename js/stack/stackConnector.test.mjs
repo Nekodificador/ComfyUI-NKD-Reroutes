@@ -55,3 +55,33 @@ test("forma de la soldadura: hueco + muescas, nada bajo los nodos", async () => 
   const wide = weldPath(stackPair(A, [100, 208, 500, 160], 30), 12)
   assert.deepEqual(wide[4], ["L", 400, 208])
 })
+
+test("bloques: pares que comparten nodo se juntan, los sueltos no", async () => {
+  const { stackGroups } = await import("./stackConnector.js")
+  const g = stackGroups([{ a: 1, b: 2 }, { a: 2, b: 3 }, { a: 7, b: 8 }, { a: 1, b: 2 }])
+  assert.equal(g.length, 2)
+  assert.deepEqual([...g[0].ids].sort(), [1, 2, 3])
+  assert.equal(g[0].pairs.length, 3)   // los dos cables 1→2 cuentan como pares
+  assert.deepEqual([...g[1].ids].sort(), [7, 8])
+})
+
+test("cambiar de alto mueve al bloque de debajo; arrastrar no", async () => {
+  const { growPushes } = await import("./stackConnector.js")
+  const prev = new Map([[1, [0, 0, 200, 100]], [2, [0, 118, 200, 80]], [3, [0, 216, 200, 80]], [4, [300, 0, 200, 80]]])
+  const pairs = [{ up: 1, low: 2 }, { up: 2, low: 3 }]
+  const con = (id, r) => new Map([...prev, [id, r]])
+  assert.deepEqual([...growPushes(prev, pairs, con(1, [0, 0, 200, 160]))], [[2, 60], [3, 60]])   // crece: cadena entera, el 4 no
+  assert.deepEqual([...growPushes(prev, pairs, con(1, [0, 0, 200, 70]))], [[2, -30], [3, -30]])  // encoge: suben
+  assert.equal(growPushes(prev, pairs, con(1, [0, 40, 200, 100])).size, 0)                       // arrastrar el de arriba
+  assert.equal(growPushes(prev, pairs, con(2, [0, 300, 200, 80])).size, 0)                       // arrastrar el de en medio: el de abajo se queda
+  assert.deepEqual([...growPushes(prev, pairs, con(2, [0, 118, 200, 100]))], [[3, 20]])          // el de en medio
+  // crecen dos a la vez: el de abajo del todo suma los dos
+  const dos = new Map([...prev, [1, [0, 0, 200, 150]], [2, [0, 118, 200, 90]]])
+  assert.deepEqual([...growPushes(prev, pairs, dos)], [[2, 50], [3, 60]])
+  // estirar el de abajo por ARRIBA: sube lo que tiene encima, en cadena
+  assert.deepEqual([...growPushes(prev, pairs, con(3, [0, 186, 200, 110]))], [[2, -30], [1, -30]])
+  // encogerlo por arriba: baja lo de encima
+  assert.deepEqual([...growPushes(prev, pairs, con(3, [0, 236, 200, 60]))], [[2, 20], [1, 20]])
+  // el de en medio por arriba: sube el 1 y el 3 se queda
+  assert.deepEqual([...growPushes(prev, pairs, con(2, [0, 98, 200, 100]))], [[1, -20]])
+})

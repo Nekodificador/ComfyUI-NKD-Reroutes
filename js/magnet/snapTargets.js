@@ -37,6 +37,19 @@ export function rectOf(node) {
   return { x, y, w: node.size[0], h: node.size[1] + th }
 }
 
+// El rectángulo que SE VE. En Nodes 2.0 el nodo de Vue puede medir más que el
+// modelo (medido 120 contra 112 de alto) y empujar o imantar con el del modelo
+// dejaba los nodos solapados. Se toma el mayor de los dos, con
+// offsetWidth/Height (maquetación, no depende del zoom). Sólo para MEDIR: al
+// escribir un tamaño se usa rectOf, o el nodo crecería con cada pasada.
+export function visualRectOf(node) {
+  const r = rectOf(node)
+  if (!LiteGraph.vueNodesMode || isReroute(node) || isGroup(node) || typeof document === "undefined") return r
+  const el = document.querySelector(`.lg-node[data-node-id="${node.id}"]`)
+  if (!el?.offsetHeight) return r
+  return { ...r, w: Math.max(r.w, el.offsetWidth), h: Math.max(r.h, el.offsetHeight) }
+}
+
 /**
  * Rectángulo que envuelve a todos los de la lista.
  * Lo usa dragAdapter para tratar una selección múltiple como un solo bloque.
@@ -285,7 +298,7 @@ export function collectResizeTargets(graph, item, opts, dir = "SE") {
   // contenido para el grupo, los del marco para el nodo— y ganaba cualquiera.
   const rects = []
   const neighbours = isGroup(item) ? (graph.groups || []) : (graph.nodes || [])
-  for (const n of neighbours) if (!skip.has(n)) rects.push(rectOf(n))
+  for (const n of neighbours) if (!skip.has(n)) rects.push(visualRectOf(n))
 
   const west  = dir.includes("W")
   const north = dir.includes("N")
@@ -373,7 +386,7 @@ export function collectSnapTargets(graph, draggedItems, dragRect, opts) {
   } else {
     for (const node of graph.nodes) {
       if (moving.has(node) || node.pinned) continue
-      addNeighbour(rectOf(node), !!node.flags?.collapsed)
+      addNeighbour(visualRectOf(node), !!node.flags?.collapsed)
     }
   }
 

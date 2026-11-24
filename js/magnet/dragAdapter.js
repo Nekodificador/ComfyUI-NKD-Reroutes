@@ -2,7 +2,7 @@ import { app } from "../../../scripts/app.js"
 import { computeSnap } from "./computeSnap.js"
 import { computePush } from "./computePush.js"
 import { activeGroupResize, installGroupResize } from "./groupResize.js"
-import { collectResizeTargets, collectSnapTargets, expandDragged, isGroup, isReroute, rectOf, unionRect } from "./snapTargets.js"
+import { collectResizeTargets, collectSnapTargets, expandDragged, isGroup, isReroute, rectOf, unionRect, visualRectOf } from "./snapTargets.js"
 
 // Estado del arrastre en curso. El índice de candidatos se construye una sola
 // vez, en el primer frame en que el imán está activo, y se tira al soltar.
@@ -104,7 +104,7 @@ function collectPushables(graph, draggedItems) {
   }
   return pool
     .filter(it => !moving.has(it) && !it.pinned)
-    .map(item => ({ item, rect: rectOf(item) }))
+    .map(item => ({ item, rect: visualRectOf(item) }))
 }
 
 // Lleva cada empujado a origen + desplazamiento. Con `shifts` nulo, de vuelta
@@ -190,6 +190,16 @@ function trackInput() {
   // El puntero se rastrea siempre: es de donde sale la posición libre.
   addEventListener("pointermove", (e) => {
     _pointer = { x: e.clientX, y: e.clientY }
+    // Ctrl+Shift es NUESTRO gesto de empujar, pero el frontend también lee Ctrl
+    // en cada pointermove del arrastre (`getDraggedItems`): con Ctrl mueve sólo
+    // lo seleccionado, sin los hijos, así que un grupo se despegaba de sus
+    // nodos al empujar. Se le oculta Ctrl a ESE evento (propiedad propia, que
+    // tapa el getter); corremos antes por ir en captura. Sólo con el empuje
+    // encendido y Shift pulsado: Ctrl solo sigue siendo el nativo.
+    if (_state?.magnetPush && _shiftDown && (e.ctrlKey || e.metaKey) && app.canvas?.isDragging) {
+      Object.defineProperty(e, "ctrlKey", { value: false })
+      Object.defineProperty(e, "metaKey", { value: false })
+    }
     // Basta con que Shift esté pulsado en algún momento del estirado: mirarlo al
     // soltar es una carrera perdida, porque la tecla suele llegar antes.
     if (_vueResize && _shiftDown) _vueResize.shift = true
@@ -223,7 +233,7 @@ function shouldEngage(canvas, state) {
 
   const items = draggedItemsOf(canvas)
   if (!items.length) return false
-  const rect = unionRect(items.map(rectOf))
+  const rect = unionRect(items.map(visualRectOf))
   if (!rect) return false
 
   if (_dragConfirmed) return true
@@ -367,7 +377,7 @@ function applyMagnet(canvas, state, move) {
   const nodes = draggedItemsOf(canvas)
   if (!nodes.length) { endSession(state, false); return }
 
-  const dragRect = unionRect(nodes.map(rectOf))
+  const dragRect = unionRect(nodes.map(visualRectOf))
   if (!dragRect) { endSession(state, false); return }
 
   // El índice se construye una vez por arrastre: los vecinos no se mueven.

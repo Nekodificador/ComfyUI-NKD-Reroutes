@@ -17,12 +17,12 @@
 import { nudgePass } from "./nudge.js"
 import { offsetStrand, route } from "./router.js"
 
-const STUB = 24         // rabito recto obligatorio al salir de un socket
+export const STUB = 24         // rabito recto obligatorio al salir de un socket
 // Separación entre carriles del mismo lado de un nodo. Apretado a propósito: el
 // rabito del carril más hondo es obligatorio para TODOS los cables de ese lado,
 // así que con un paso grande un nodo de muchas entradas fuerza rabitos tan
 // largos que el cable acaba dando la vuelta.
-const STUB_PITCH = 5
+export const STUB_PITCH = 5
 const CLEARANCE = 16    // cuánto se infla cada nodo; los carriles son sus bordes
 const CACHE_MAX = 4096
 // Búsquedas nuevas por frame mientras se arrastra. Los cables que se mueven al
@@ -313,6 +313,28 @@ export function laneStub(graph, node, isInput, slot) {
   return STUB + carril * STUB_PITCH
 }
 
+// Encoge un rabito que se metería en el CUERPO de otro nodo.
+//
+// Con dos nodos a menos de dos rabitos (24 + 24) de distancia, la punta caía
+// dentro del vecino: el cable salía, se pasaba, volvía y entraba — una S en un
+// hueco de 22 px (medido). clearStub no lo arregla porque aparta hacia FUERA y
+// ahí el otro extremo se lo impide. Se encoge en proporción al hueco libre hasta
+// el primer nodo que tapa el tramo vertical: con el rabito base queda en el
+// centro del hueco, y los carriles más hondos siguen más hondos (no se aplastan
+// todos al mismo tope).
+function fitStub(x, dir, stub, yA, yB) {
+  const y0 = Math.min(yA, yB), y1 = Math.max(yA, yB)
+  let hueco = Infinity
+  for (const [rx, ry, rw, rh] of obstacles) {
+    if (y1 <= ry || y0 >= ry + rh) continue
+    const borde = dir > 0 ? rx : rx + rw
+    const d = (borde - x) * dir
+    if (d > 0 && d < stub && d < hueco) hueco = d
+  }
+  if (hueco === Infinity) return stub
+  return Math.max(0, Math.min(hueco * stub / (2 * STUB), hueco - 2))
+}
+
 // Aparta un rabito hasta que su columna quede despejada en el tramo de altura
 // que el cable tiene que recorrer.
 //
@@ -439,6 +461,8 @@ export function routeFor(id, a, b, opts = {}) {
   // Apartar los rabitos de las columnas ocupadas. Va después de los carriles
   // —el carril decide el orden entre hermanos, esto decide si esa columna es
   // viable— y antes de la clave, porque cambia la geometría de la ruta.
+  if (!endIsReroute)   stubEnd   = fitStub(b[0], endDir === "left" ? -1 : 1, stubEnd, a[1], b[1])
+  if (!startIsReroute) stubStart = fitStub(a[0], startDir === "left" ? -1 : 1, stubStart, a[1], b[1])
   if (endDir === "left" || endDir === "right") {
     const dir = endDir === "left" ? -1 : 1
     const punta = clearStub(b[0] + dir * stubEnd, dir, a[1], b[1], a[0])
@@ -585,8 +609,8 @@ function rawRoute(graph, ll) {
   // Los rabitos se apartan igual que en el ruteo normal. Si la plantilla se
   // calculara con reglas distintas, la cinta entera saldría con una forma que
   // ningún cable habría elegido por su cuenta.
-  const s = clearStub(e.a[0] + laneStub(graph, origen,  false, ll.origin_slot),  1, e.a[1], e.b[1], e.b[0])
-  const t = clearStub(e.b[0] - laneStub(graph, destino, true,  ll.target_slot), -1, e.a[1], e.b[1], e.a[0])
+  const s = clearStub(e.a[0] + fitStub(e.a[0],  1, laneStub(graph, origen,  false, ll.origin_slot), e.a[1], e.b[1]),  1, e.a[1], e.b[1], e.b[0])
+  const t = clearStub(e.b[0] - fitStub(e.b[0], -1, laneStub(graph, destino, true,  ll.target_slot), e.a[1], e.b[1]), -1, e.a[1], e.b[1], e.a[0])
   return route({
     start: e.a, end: e.b, startDir: "right", endDir: "left",
     obstacles, clearance: CLEARANCE, lanes, blockedMult: esquivarPara(graph, ll),

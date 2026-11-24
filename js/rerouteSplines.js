@@ -15,9 +15,9 @@ import "./export/docShots.js"   // window.NKDReroutes: capturas para la document
 import { computeTension } from "./spline/tension.js"
 import { computeArrange } from "./layout/arrange.js"
 import { readabilityCommands, showReadability } from "./layout/readability.js"
-import { stackPair, connectorGeometry, weldPath } from "./stack/stackConnector.js"
-import { rectOf, socketPos } from "./magnet/snapTargets.js"
-import { beginFrame, emitRoute, routeFor } from "./route/pcb.js"
+import { stackPair, connectorGeometry, weldPath, stackGroups, growPushes } from "./stack/stackConnector.js"
+import { socketPos, visualRectOf } from "./magnet/snapTargets.js"
+import { beginFrame, emitRoute, routeFor, STUB, STUB_PITCH } from "./route/pcb.js"
 import { DEFAULTS, PRESETS, PRESET_KEYS, SETTING_ID_MAP, NKD_ACCENT } from "./spline/config.js"
 
 // ─── NKD Reroutes — Rewritten v2.0 ──────────────────────────────────────────
@@ -505,7 +505,10 @@ function applyArrange(state) {
       }
     })
 
-    const { nodeMoves } = computeArrange({ nodes, edges }, { gapX: state.magnetGapX, gapY: state.magnetGapY })
+    const { nodeMoves } = computeArrange({ nodes, edges }, {
+      gapX: state.magnetGapX, gapY: state.magnetGapY,
+      pcb: state.pcbEnabled ? { stub: STUB, pitch: STUB_PITCH } : null,
+    })
 
     for (const [id, [x, y]] of nodeMoves) {
       const node = graph.getNodeById?.(id)
@@ -531,13 +534,9 @@ function applyArrange(state) {
 //    reserva un cuadrado del ancho del nodo, con el mismo tope que el rescalado.
 const SHOWS_IMAGE = /Preview|Save/i
 function arrangeRect(node) {
-  const r = rectOf(node)
+  const r = visualRectOf(node)
   if (!r) return r
   let { w, h } = r
-  if (LiteGraph.vueNodesMode) {
-    const el = document.querySelector(`.lg-node[data-node-id="${node.id}"]`)
-    if (el?.offsetHeight) { w = Math.max(w, el.offsetWidth); h = Math.max(h, el.offsetHeight) }
-  }
   if (!node.flags?.collapsed && SHOWS_IMAGE.test(node.type ?? "") && !node.imgs?.length) {
     h = Math.max(h, Math.min(ARRANGE_MAX_H, h + w))
   }
@@ -943,7 +942,9 @@ function stackFor(link) {
   if (!state.stackConnectors || !link) return null
   const graph = app.canvas?.graph
   const src = graph?.getNodeById?.(link.origin_id), dst = graph?.getNodeById?.(link.target_id)
-  if (!src || !dst || src === dst || src.flags?.collapsed || dst.flags?.collapsed) return null
+  // Los plegados cuentan: su pastilla es un borde como otro cualquiera (su
+  // boundingRect y su .lg-node ya miden la pastilla, no el nodo desplegado).
+  if (!src || !dst || src === dst) return null
   const pair = stackPair(visualRect(src), visualRect(dst), state.stackMaxGap)
   if (!pair) return null
   // Varios cables entre el mismo par: uno al lado del otro, en orden de socket.
@@ -954,7 +955,7 @@ function stackFor(link) {
   const i = Math.max(0, hermanos.findIndex(l => l.id === link.id))
   const radius = nodeRadius()
   const geo = connectorGeometry(pair, i, Math.max(1, hermanos.length), radius)
-  return { ...geo, index: i, weld: weldPath(pair, radius), pts: [[geo.line[0], geo.line[1]], [geo.line[2], geo.line[3]]] }
+  return { ...geo, index: i, pair, radius, weld: weldPath(pair, radius), pts: [[geo.line[0], geo.line[1]], [geo.line[2], geo.line[3]]] }
 }
 
 // Un cable con reroutes por medio no es un par de nodos pegados: sus tramos
@@ -1014,6 +1015,105 @@ function drawStackMarks(ctx, stack, link, color) {
     ctx.beginPath()
     ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2)
     ctx.stroke()
+  }
+  ctx.restore()
+}
+
+// Contorno del bloque soldado: una línea que rodea la UNIÓN de los nodos de la
+// pila, separada OUTLINE_GAP de ellos para que se lea como envoltorio y no
+// como un borde más grueso del nodo (pegado se confundía con el suyo).
+// Piezas: cada nodo inflado OUTLINE_GAP y, por cada par, un relleno recto en
+// el ancho común que cubre el hueco (y el radio de las esquinas, si no quedaba
+// muesca). Se recorta a lo de FUERA de todas las piezas —un clip por pieza; los
+// clips se intersecan, así que pueden solaparse— y se traza cada pieza con el
+// doble de grosor: lo que cae dentro de otra pieza se recorta y sólo sobrevive
+// el contorno exterior de la unión.
+const OUTLINE_W = 1.5
+const OUTLINE_GAP = 4
+const OUTLINE_COLOR = "rgba(255,255,255,0.35)"
+
+// Bloques soldados que siguen pegados cuando un nodo cambia de alto (una preview
+// que llega, un widget que aparece, estirarlo o encogerlo por abajo): con lo que
+// había soldado en el frame anterior, los de debajo se mueven lo mismo. Arrastrar
+// un nodo no mueve a nadie. Va antes
+// de dibujar para que el frame ya salga con el bloque en su sitio. setPos y no
+// pos[]: en Nodes 2.0 sincroniza el nodo de Vue.
+let _stackPrev = { graph: null, rects: new Map(), pairs: [] }
+// boundingRect es una caché que rellena el dibujado del nodo, y en Nodes 2.0 el
+// canvas no dibuja nodos: estirar por arriba movía el top sin que la caché se
+// enterara (medido) y parecía estirado por abajo. Se refresca antes de medir.
+const freshRect = (node) => { node?.updateArea?.(); return visualRect(node) }
+function pushGrownStacks(graph) {
+  if (!state.stackConnectors || !graph?.links) { _stackPrev = { graph: null, rects: new Map(), pairs: [] }; return }
+  if (_stackPrev.graph === graph && _stackPrev.pairs.length) {
+    const now = new Map()
+    for (const id of _stackPrev.rects.keys()) {
+      const r = freshRect(graph.getNodeById(id))
+      if (r) now.set(id, [...r])
+    }
+    for (const [id, dy] of growPushes(_stackPrev.rects, _stackPrev.pairs, now)) {
+      const n = graph.getNodeById(id)
+      if (!n || n.pinned) continue
+      n.setPos?.(n.pos[0], n.pos[1] + dy)
+      // boundingRect es una caché que se rellena al dibujar: sin esto, el rect
+      // que se apunta abajo sale con la posición vieja y al frame siguiente el
+      // nodo parece arrastrado y se salta (un frame sí y otro no = la mitad de
+      // ritmo al estirar seguido, medido).
+      n.updateArea?.()
+    }
+  }
+  const rects = new Map(), pairs = []
+  for (const link of graph.links.values?.() ?? Object.values(graph.links)) {
+    if (!link || link.parentId != null || !stackFor(link)) continue
+    const ra = freshRect(graph.getNodeById(link.origin_id)), rb = freshRect(graph.getNodeById(link.target_id))
+    rects.set(link.origin_id, [...ra]); rects.set(link.target_id, [...rb])
+    pairs.push(ra[1] <= rb[1] ? { up: link.origin_id, low: link.target_id } : { up: link.target_id, low: link.origin_id })
+  }
+  _stackPrev = { graph, rects, pairs }
+}
+
+// ponytail: recorre todos los cables una vez por frame (stackFor por cable);
+// si pesa en grafos enormes, cachear stackFor por frame y reusarlo en drawLink.
+function drawStackOutlines(ctx, graph) {
+  if (!state.stackConnectors || !state.stackWeld || !graph?.links) return
+  const pairs = []
+  for (const link of graph.links.values?.() ?? Object.values(graph.links)) {
+    if (!link || link.parentId != null) continue   // con reroutes no es pila
+    const st = stackFor(link)
+    if (st) pairs.push({ a: link.origin_id, b: link.target_id, st })
+  }
+  if (!pairs.length) return
+  const d = OUTLINE_GAP
+  ctx.save()
+  ctx.strokeStyle = OUTLINE_COLOR
+  ctx.lineWidth = OUTLINE_W * 2
+  for (const g of stackGroups(pairs)) {
+    const { radius } = g.pairs[0].st
+    const piezas = []
+    for (const id of g.ids) {
+      const r = visualRect(graph.getNodeById(id))
+      if (!r) continue
+      const p = new Path2D()
+      p.roundRect(r[0] - d, r[1] - d, r[2] + 2 * d, r[3] + 2 * d,
+        Math.max(0, Math.min(radius, r[2] / 2, r[3] / 2)) + d)
+      piezas.push(p)
+    }
+    for (const { st: { pair: { upper, lower } } } of g.pairs) {
+      const x0 = Math.max(upper[0], lower[0]), x1 = Math.min(upper[0] + upper[2], lower[0] + lower[2])
+      const y0 = upper[1] + upper[3] - radius, y1 = lower[1] + radius
+      const p = new Path2D()
+      p.rect(x0 - d, y0, x1 - x0 + 2 * d, y1 - y0)
+      piezas.push(p)
+    }
+    ctx.save()
+    for (const p of piezas) {
+      const fuera = new Path2D()
+      fuera.rect(-1e7, -1e7, 2e7, 2e7)
+      fuera.addPath(p)
+      ctx.clip(fuera, "evenodd")
+    }
+    for (const p of piezas) ctx.stroke(p)
+    ctx.restore()
   }
   ctx.restore()
 }
@@ -1126,6 +1226,8 @@ function patchDrawConnections() {
     // El bus deriva sus barras antes de dibujar (los puntos de sus reroutes se
     // ocultan en el dibujado) y las pinta después, encima de los cables.
     busBeginFrame(this.graph)
+    try { pushGrownStacks(this.graph) } catch (err) { console.warn("[NKD Reroutes] empuje de pila", err) }
+    try { drawStackOutlines(ctx, this.graph) } catch (err) { console.warn("[NKD Reroutes] contorno de pila", err) }
     const out = orig.apply(this, arguments)
     try { busDraw(ctx, this.graph) } catch (err) { console.warn("[NKD Reroutes] bus", err) }
     return out

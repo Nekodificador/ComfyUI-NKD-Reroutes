@@ -88,3 +88,73 @@ export function connectorGeometry(pair, index = 0, count = 1, radius = 8) {
     line:   [x, yTop, x, yBot],
   }
 }
+
+/**
+ * Agrupa los pares soldados en bloques: dos pares que comparten un nodo son el
+ * mismo bloque (una columna de tres nodos = un bloque, no dos).
+ * @param {Array<{a:any, b:any}>} pairs  a/b = id de cada nodo del par
+ * @returns {Array<{ids:Set, pairs:Array}>}
+ */
+export function stackGroups(pairs) {
+  const parent = new Map()
+  const find = (x) => {
+    if (!parent.has(x)) parent.set(x, x)
+    while (parent.get(x) !== x) x = parent.get(x)
+    return x
+  }
+  for (const p of pairs) parent.set(find(p.a), find(p.b))
+  const groups = new Map()
+  for (const p of pairs) {
+    const root = find(p.a)
+    if (!groups.has(root)) groups.set(root, { ids: new Set(), pairs: [] })
+    const g = groups.get(root)
+    g.ids.add(p.a); g.ids.add(p.b); g.pairs.push(p)
+  }
+  return [...groups.values()]
+}
+
+/**
+ * Bloque pegado al cambiar de tamaño. Cada nodo se clasifica por qué borde se
+ * ha movido desde el frame anterior:
+ *  · sólo el de abajo → estirado/encogido por abajo: lo soldado DEBAJO le sigue.
+ *  · sólo el de arriba → estirado/encogido por arriba: lo soldado ENCIMA le sigue.
+ *  · los dos → arrastre: ni empuja ni se le mueve, y corta la cadena.
+ * Se compara con el frame anterior porque al crecer el hueco se vuelve
+ * negativo (y al encoger puede pasarse del máximo): en este frame ya no hay par.
+ * Se conserva el HUECO de cada par, no se suman incrementos: si un frame se
+ * queda atrás, el siguiente lo recoloca entero en vez de arrastrar el desfase.
+ * @param {Map<any, number[]>} prevRects  id → [x,y,w,h] del frame anterior
+ * @param {Array<{up:any, low:any}>} prevPairs  pares soldados del frame anterior
+ * @param {Map<any, number[]>} rects  id → [x,y,w,h] ahora
+ * @returns {Map<any, number>} id → cuánto moverlo en vertical (+ abajo)
+ */
+export function growPushes(prevRects, prevPairs, rects) {
+  const edge = (id) => {
+    const a = prevRects.get(id), b = rects.get(id)
+    if (!a || !b) return "drag"
+    const top = Math.abs(b[1] - a[1]) > 0.5
+    const bottom = Math.abs((b[1] + b[3]) - (a[1] + a[3])) > 0.5
+    return top && bottom ? "drag" : top ? "top" : bottom ? "bottom" : "still"
+  }
+  const gapOf = (up, low) => prevRects.get(low)[1] - (prevRects.get(up)[1] + prevRects.get(up)[3])
+  const moves = new Map()
+  // Hacia abajo, de arriba abajo: cada par ve ya movido a su nodo de arriba.
+  for (const { up, low } of [...prevPairs].sort((p, q) => prevRects.get(p.up)?.[1] - prevRects.get(q.up)?.[1])) {
+    const eu = edge(up), el = edge(low)
+    if (!(eu === "bottom" || moves.has(up)) || !(el === "still" || el === "bottom")) continue
+    const u = rects.get(up)
+    const dy = (u[1] + (moves.get(up) ?? 0) + u[3] + gapOf(up, low)) - rects.get(low)[1]
+    if (Math.abs(dy) > 0.5) moves.set(low, dy)
+  }
+  // Hacia arriba, de abajo arriba: el espejo.
+  const up_ = new Map()
+  for (const { up, low } of [...prevPairs].sort((p, q) => prevRects.get(q.low)?.[1] - prevRects.get(p.low)?.[1])) {
+    const eu = edge(up), el = edge(low)
+    if (!(el === "top" || up_.has(low)) || !(eu === "still" || eu === "top") || moves.has(up)) continue
+    const l = rects.get(low), u = rects.get(up)
+    const dy = (l[1] + (up_.get(low) ?? 0) - gapOf(up, low) - u[3]) - u[1]
+    if (Math.abs(dy) > 0.5) up_.set(up, dy)
+  }
+  for (const [id, dy] of up_) moves.set(id, dy)
+  return moves
+}
